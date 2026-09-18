@@ -1,10 +1,4 @@
-"""In-memory repository implementations.
-
-Useful for unit tests and for bootstrapping the API before the real
-SQLAlchemy/Postgres repositories exist (Phase 1 slice 3). Each class
-implements the corresponding Protocol in domain/ports/repositories.py —
-that's checked by mypy structurally, no explicit inheritance needed.
-"""
+"""In-memory repositories used by fast unit/API tests."""
 
 from __future__ import annotations
 

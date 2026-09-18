@@ -1,35 +1,30 @@
-"""FastAPI entrypoint.
-
-NOTE: repositories are wired as process-local in-memory singletons for now.
-This is intentional for the Phase 1 foundation slice — real Postgres-backed
-repositories land in the next slice (see docs/architecture.md §8) and will
-be swapped in here via FastAPI's dependency-injection system without any
-change to app/domain or app/application.
-"""
+"""FastAPI entrypoint for Hadence."""
 
 from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from app.api.dependencies import RepositoryBundle, get_repository_bundle
 from app.application.use_cases import add_skill, attach_evidence_to_skill, create_career_profile
+from app.config import get_settings
 from app.domain.value_objects import EvidenceSourceType
-from app.infrastructure.db.in_memory import (
-    InMemoryCareerProfileRepository,
-    InMemoryEvidenceRepository,
-    InMemoryEvidenceSourceRepository,
-    InMemorySkillRepository,
-)
 
 app = FastAPI(title="Hadence API", version="0.1.0")
 
-# Process-local singletons — see module docstring.
-_profile_repo = InMemoryCareerProfileRepository()
-_skill_repo = InMemorySkillRepository()
-_source_repo = InMemoryEvidenceSourceRepository()
-_evidence_repo = InMemoryEvidenceRepository()
+_settings = get_settings()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        origin.strip() for origin in _settings.api_cors_origins.split(",") if origin.strip()
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
@@ -47,22 +42,52 @@ class ProfileResponse(BaseModel):
     user_id: UUID
     display_name: str
     skill_ids: list[UUID]
+    project_ids: list[UUID]
+    experience_ids: list[UUID]
+    education_ids: list[UUID]
+    certification_ids: list[UUID]
 
 
 @app.post("/profiles", response_model=ProfileResponse)
-def create_profile(payload: CreateProfileRequest) -> ProfileResponse:
+def create_profile(
+    payload: CreateProfileRequest,
+    repos: RepositoryBundle = Depends(get_repository_bundle),
+) -> ProfileResponse:
     profile = create_career_profile(
-        repo=_profile_repo, user_id=payload.user_id, display_name=payload.display_name
+        repo=repos.profile,
+        user_id=payload.user_id,
+        display_name=payload.display_name,
     )
-    return ProfileResponse(**profile.__dict__)
+    return ProfileResponse(
+        id=profile.id,
+        user_id=profile.user_id,
+        display_name=profile.display_name,
+        skill_ids=profile.skill_ids,
+        project_ids=profile.project_ids,
+        experience_ids=profile.experience_ids,
+        education_ids=profile.education_ids,
+        certification_ids=profile.certification_ids,
+    )
 
 
 @app.get("/profiles/{profile_id}", response_model=ProfileResponse)
-def get_profile(profile_id: UUID) -> ProfileResponse:
-    profile = _profile_repo.get(profile_id)
+def get_profile(
+    profile_id: UUID,
+    repos: RepositoryBundle = Depends(get_repository_bundle),
+) -> ProfileResponse:
+    profile = repos.profile.get(profile_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found")
-    return ProfileResponse(**profile.__dict__)
+    return ProfileResponse(
+        id=profile.id,
+        user_id=profile.user_id,
+        display_name=profile.display_name,
+        skill_ids=profile.skill_ids,
+        project_ids=profile.project_ids,
+        experience_ids=profile.experience_ids,
+        education_ids=profile.education_ids,
+        certification_ids=profile.certification_ids,
+    )
 
 
 class AddSkillRequest(BaseModel):
@@ -76,17 +101,21 @@ class SkillResponse(BaseModel):
 
 
 @app.post("/profiles/{profile_id}/skills", response_model=SkillResponse)
-def create_skill(profile_id: UUID, payload: AddSkillRequest) -> SkillResponse:
+def create_skill(
+    profile_id: UUID,
+    payload: AddSkillRequest,
+    repos: RepositoryBundle = Depends(get_repository_bundle),
+) -> SkillResponse:
     try:
         skill = add_skill(
-            profile_repo=_profile_repo,
-            skill_repo=_skill_repo,
+            profile_repo=repos.profile,
+            skill_repo=repos.skill,
             career_profile_id=profile_id,
             name=payload.name,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return SkillResponse(**skill.__dict__)
+    return SkillResponse(id=skill.id, career_profile_id=skill.career_profile_id, name=skill.name)
 
 
 class AttachEvidenceRequest(BaseModel):
@@ -107,12 +136,16 @@ class EvidenceResponse(BaseModel):
 
 
 @app.post("/skills/{skill_id}/evidence", response_model=EvidenceResponse)
-def create_evidence(skill_id: UUID, payload: AttachEvidenceRequest) -> EvidenceResponse:
+def create_evidence(
+    skill_id: UUID,
+    payload: AttachEvidenceRequest,
+    repos: RepositoryBundle = Depends(get_repository_bundle),
+) -> EvidenceResponse:
     try:
         evidence = attach_evidence_to_skill(
-            skill_repo=_skill_repo,
-            source_repo=_source_repo,
-            evidence_repo=_evidence_repo,
+            skill_repo=repos.skill,
+            source_repo=repos.source,
+            evidence_repo=repos.evidence,
             skill_id=skill_id,
             source_type=payload.source_type,
             source_label=payload.source_label,

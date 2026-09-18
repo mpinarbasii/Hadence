@@ -1,21 +1,11 @@
-"""Repository interfaces (ports) the domain/application layers depend on.
-
-Concrete implementations live in infrastructure/db/ (Postgres) and, for
-tests, as simple in-memory fakes. Neither the domain nor the application
-layer should import SQLAlchemy or any other persistence technology.
-"""
+"""Repository interfaces (ports) for the domain/application layers."""
 
 from __future__ import annotations
 
 from typing import Protocol
 from uuid import UUID
 
-from app.domain.entities import (
-    CareerProfile,
-    Evidence,
-    EvidenceSource,
-    Skill,
-)
+from app.domain.entities import CareerProfile, Evidence, EvidenceSource, Skill
 from app.domain.value_objects import EvidenceSourceType
 
 
@@ -40,13 +30,7 @@ class EvidenceSourceRepository(Protocol):
 
     def get(self, source_id: UUID) -> EvidenceSource | None: ...
 
-    def get_by_uri(self, source_type: EvidenceSourceType, uri: str) -> EvidenceSource | None:
-        """Look up an existing source by (source_type, uri) for idempotent registration.
-
-        Only meaningful for sources that have a uri (e.g. github, portfolio
-        links) — see application/use_cases.py:register_evidence_source.
-        """
-        ...
+    def get_by_uri(self, source_type: EvidenceSourceType, uri: str) -> EvidenceSource | None: ...
 
 
 class EvidenceRepository(Protocol):

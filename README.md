@@ -22,15 +22,15 @@ there is no reliable evidence for a skill, the system says so explicitly.
 
 ## Status
 
-🚧 Early foundation stage (Phase 0 / Phase 1 of the roadmap — see
-[`docs/architecture.md`](docs/architecture.md) and
-[`docs/domain-model.md`](docs/domain-model.md)).
+🚧 Early foundation stage — Career Evidence Foundation with PostgreSQL
+persistence is being implemented. See [`docs/architecture.md`](docs/architecture.md)
+and [`docs/domain-model.md`](docs/domain-model.md).
 
 ## Repository layout
 
 ```
 hadence/
-├── backend/     FastAPI + Pydantic service, layered by domain / application / infrastructure / api
+├── backend/     FastAPI service, layered by domain / application / infrastructure / api
 ├── frontend/    Next.js + TypeScript + Tailwind CSS
 └── docs/        Architecture and domain-model documentation
 ```
@@ -44,10 +44,29 @@ cd backend
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-cp ../.env.example ../.env   # fill in real values
+cp ../.env.example ../.env
+alembic upgrade head
 pytest
 ruff check .
+
+To run the optional Postgres integration test suite, set `TEST_DATABASE_URL`
+to a separate test database (for example the `hadence_test` database) and
+run `pytest tests/test_postgres_repository.py`.
+
+
 uvicorn app.api.main:app --reload
+```
+
+On Windows PowerShell, activate with:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+If PowerShell blocks scripts in the current session:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
 ### Frontend
@@ -60,21 +79,29 @@ npm run dev
 
 ## Tech stack
 
-| Layer      | Choice                                  |
-|------------|------------------------------------------|
-| Frontend   | Next.js, TypeScript, Tailwind CSS        |
-| Backend    | Python, FastAPI, Pydantic                |
-| Database   | PostgreSQL                               |
+| Layer      | Choice |
+|------------|--------|
+| Frontend   | Next.js, TypeScript, Tailwind CSS |
+| Backend    | Python, FastAPI, Pydantic |
+| Database   | PostgreSQL, SQLAlchemy, Alembic |
 | LLM        | Provider-abstracted (OpenAI / Anthropic) |
 
-See [`docs/architecture.md`](docs/architecture.md) for the reasoning behind
-these choices and the layering rules that keep the domain model independent
-of any specific framework or LLM vendor.
+## First persistent workflow
 
-## Contributing / working agreement
+The first real vertical slice is:
 
-This project follows a phased roadmap (Career Evidence Foundation → GitHub
-Evidence Collector → Job Intelligence → Evidence Mapping → Application
-Blueprint → Application Builder → Application Workspace → Diff/Analytics →
-Browser Extension). Each phase should land as a coherent, tested slice —
-see `docs/architecture.md` for the full plan.
+```text
+Profile
+  ↓
+Skill / Project / Experience
+  ↓
+EvidenceSource
+  ↓
+Evidence
+  ↓
+PostgreSQL
+```
+
+The next phases build GitHub evidence collection, Job Intelligence, Evidence
+Mapping, Application Blueprint, Application Builder, Application Workspace,
+Diff/Analytics, and the browser extension on top of this foundation.

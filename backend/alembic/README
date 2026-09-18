@@ -1,0 +1,9 @@
+Hadence Alembic migrations.
+
+Run from backend/:
+
+    alembic upgrade head
+
+Create a new migration after changing ORM models with:
+
+    alembic revision --autogenerate -m "describe change"

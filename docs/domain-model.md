@@ -17,11 +17,12 @@ more `Evidence` records, which are always backed by an `EvidenceSource`.
 
 ## 2. Entities
 
-### CareerProfile (aggregate root)
-Belongs to a `User`. Owns `Skill`, `Project`, `Experience`, `Education`,
-`Certification` records.
+### CareerProfile (minimal aggregate root)
+Belongs to a `User`. It exposes domain methods for linking profile-scoped
+`Skill`, `Project`, `Experience`, `Education`, and `Certification` IDs. The
+exact aggregate boundary may evolve as cross-entity workflows are introduced.
 
-### EvidenceSource (aggregate root, immutable once created)
+### EvidenceSource (stable, reusable provenance entity)
 ```
 id
 source_type: resume | github | project | certificate | experience | manual | portfolio
@@ -31,8 +32,8 @@ raw_content_ref       # pointer to stored raw content (file, fetched README, etc
 retrieved_at
 last_verified_at
 ```
-Immutable: if the source changes (e.g. repo updated), a new version /
-re-verification event is recorded rather than mutating history silently.
+A source may be refreshed over time. Evidence records remain subject-specific
+so the provenance and explanation of each relationship stay inspectable.
 
 ### Evidence (join entity — NOT independent)
 Connects a `CareerProfile` item (Skill/Project/Experience/etc.) to an
@@ -118,7 +119,7 @@ notes
 CareerProfile
  ├── Skill ──┐
  ├── Project │
- ├── Experience ├──► Evidence ◄── EvidenceSource (provenance, immutable)
+ ├── Experience ├──► Evidence ◄── EvidenceSource (reusable provenance)
  ├── Education │
  └── Certification ┘
 

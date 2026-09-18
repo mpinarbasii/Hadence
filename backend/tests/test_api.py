@@ -1,7 +1,29 @@
 from fastapi.testclient import TestClient
 
+from app.api.dependencies import RepositoryBundle, get_repository_bundle
 from app.api.main import app
+from app.infrastructure.db.in_memory import (
+    InMemoryCareerProfileRepository,
+    InMemoryEvidenceRepository,
+    InMemoryEvidenceSourceRepository,
+    InMemorySkillRepository,
+)
 
+_in_memory_bundle = RepositoryBundle(
+    profile=InMemoryCareerProfileRepository(),
+    skill=InMemorySkillRepository(),
+    source=InMemoryEvidenceSourceRepository(),
+    evidence=InMemoryEvidenceRepository(),
+)
+
+
+def in_memory_bundle() -> RepositoryBundle:
+    """Use one store throughout a multi-request API test workflow."""
+
+    return _in_memory_bundle
+
+
+app.dependency_overrides[get_repository_bundle] = in_memory_bundle
 client = TestClient(app)
 
 

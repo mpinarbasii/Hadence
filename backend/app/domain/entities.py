@@ -1,13 +1,7 @@
-"""Core domain entities for the Career Evidence Foundation (Phase 1).
+"""Core domain entities for the Hadence Career Evidence Foundation.
 
-Kept intentionally minimal: Job / JobRequirement / RequirementEvidence /
-Application entities are added in later phases (see docs/domain-model.md),
-once Job Intelligence and Evidence Mapping are implemented. Adding them here
-before there's a use case for them would be speculative.
-
-Pure dataclasses on purpose: no ORM/Pydantic coupling in the domain layer.
-Validation belongs to the API schemas (api/) and construction logic below;
-persistence mapping belongs to infrastructure/db/.
+The domain layer is framework-independent: no FastAPI, Pydantic, SQLAlchemy,
+or LLM SDK imports are allowed here.
 """
 
 from __future__ import annotations
@@ -21,19 +15,11 @@ from app.domain.value_objects import EvidenceSourceType, EvidenceSubjectType
 
 @dataclass
 class EvidenceSource:
-    """A stable, reusable provenance record — not an immutable aggregate root.
+    """Stable, reusable provenance record.
 
-    The same logical source (e.g. one GitHub repository, one uploaded CV) is
-    represented by a single `EvidenceSource` and its identity is reused
-    across every `Evidence` record that points back to it — see
-    docs/domain-model.md §2 and the Step 3 evidence-source/evidence
-    separation. Metadata such as `last_verified_at` may change over time
-    (re-verification updates it in place); this is not treated as creating a
-    new provenance identity.
-
-    `Evidence` records are what carry the subject-specific, explainable
-    context (excerpt, relevance_note) — `EvidenceSource` itself only needs to
-    answer "where did this come from" and "when was it last checked".
+    The source identity can be reused by multiple evidence records. Metadata
+    such as last_verified_at may evolve over time; individual Evidence rows
+    preserve the subject-specific explanation of why the source is relevant.
     """
 
     id: UUID
@@ -60,18 +46,10 @@ class EvidenceSource:
             retrieved_at=datetime.now(UTC),
         )
 
-    def mark_verified(self) -> None:
-        """Record that this source was re-checked, without changing its identity."""
-        self.last_verified_at = datetime.now(UTC)
-
 
 @dataclass(frozen=True)
 class Evidence:
-    """Join entity linking a profile item to the source that supports it.
-
-    Not an independent concept — see docs/domain-model.md §1. Always has
-    exactly one subject and one source.
-    """
+    """Subject-specific link between a career object and a source."""
 
     id: UUID
     subject_type: EvidenceSubjectType
@@ -213,22 +191,7 @@ class Certification:
 
 @dataclass
 class CareerProfile:
-    """Aggregate root for a user's evidence graph.
-
-    Mutation of the profile's child-id collections (skills, projects, ...)
-    must go through the `add_*` methods below rather than touching the
-    lists directly, so id-uniqueness stays an enforced invariant instead of
-    a convention callers have to remember.
-
-    The aggregate boundary here is intentionally minimal: it only owns
-    id-references to its children, not the child entities themselves, and
-    the only invariant enforced today is "no duplicate child id". This is a
-    deliberate choice to avoid over-engineering DDD aggregate boundaries
-    before there's a concrete persistence/consistency requirement driving
-    them. The boundary may need to evolve once PostgreSQL persistence and
-    cross-entity workflows (e.g. deleting a skill that has evidence
-    attached) are introduced — see docs/architecture.md.
-    """
+    """Minimal aggregate root for the user's career evidence graph."""
 
     id: UUID
     user_id: UUID
@@ -243,23 +206,22 @@ class CareerProfile:
     def create(user_id: UUID, display_name: str) -> CareerProfile:
         return CareerProfile(id=uuid4(), user_id=user_id, display_name=display_name)
 
+    def _add_unique(self, collection: list[UUID], entity_id: UUID, label: str) -> None:
+        if entity_id in collection:
+            raise ValueError(f"{label} {entity_id} is already linked to this profile")
+        collection.append(entity_id)
+
     def add_skill(self, skill_id: UUID) -> None:
-        _append_unique(self.skill_ids, skill_id)
+        self._add_unique(self.skill_ids, skill_id, "Skill")
 
     def add_project(self, project_id: UUID) -> None:
-        _append_unique(self.project_ids, project_id)
+        self._add_unique(self.project_ids, project_id, "Project")
 
     def add_experience(self, experience_id: UUID) -> None:
-        _append_unique(self.experience_ids, experience_id)
+        self._add_unique(self.experience_ids, experience_id, "Experience")
 
     def add_education(self, education_id: UUID) -> None:
-        _append_unique(self.education_ids, education_id)
+        self._add_unique(self.education_ids, education_id, "Education")
 
     def add_certification(self, certification_id: UUID) -> None:
-        _append_unique(self.certification_ids, certification_id)
-
-
-def _append_unique(ids: list[UUID], new_id: UUID) -> None:
-    if new_id in ids:
-        raise ValueError(f"Duplicate id {new_id} — already present on this profile")
-    ids.append(new_id)
+        self._add_unique(self.certification_ids, certification_id, "Certification")
