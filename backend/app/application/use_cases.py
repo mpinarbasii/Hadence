@@ -67,12 +67,17 @@ def register_evidence_source(
 def link_evidence(
     *,
     evidence_repo: EvidenceRepository,
+    source_repo: EvidenceSourceRepository,
     subject_type: EvidenceSubjectType,
     subject_id: UUID,
     evidence_source_id: UUID,
     excerpt: str | None = None,
     relevance_note: str | None = None,
 ) -> Evidence:
+    source = source_repo.get(evidence_source_id)
+    if source is None:
+        raise ValueError(f"EvidenceSource {evidence_source_id} not found")
+
     evidence = Evidence.create(
         subject_type=subject_type,
         subject_id=subject_id,
@@ -110,6 +115,7 @@ def attach_evidence_to_skill(
     )
     return link_evidence(
         evidence_repo=evidence_repo,
+        source_repo=source_repo,
         subject_type=EvidenceSubjectType.SKILL,
         subject_id=skill.id,
         evidence_source_id=source.id,

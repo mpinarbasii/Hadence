@@ -7,6 +7,12 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from app.domain.ports.repositories import (
+    CareerProfileRepository,
+    EvidenceRepository,
+    EvidenceSourceRepository,
+    SkillRepository,
+)
 from app.infrastructure.db.engine import get_session
 from app.infrastructure.db.repositories import (
     SqlAlchemyCareerProfileRepository,
@@ -18,10 +24,10 @@ from app.infrastructure.db.repositories import (
 
 @dataclass(frozen=True)
 class RepositoryBundle:
-    profile: object
-    skill: object
-    source: object
-    evidence: object
+    profile: CareerProfileRepository
+    skill: SkillRepository
+    source: EvidenceSourceRepository
+    evidence: EvidenceRepository
 
 
 def get_repository_bundle() -> Iterator[RepositoryBundle]:

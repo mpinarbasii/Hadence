@@ -2,7 +2,16 @@ from uuid import uuid4
 
 import pytest
 
-from app.domain.entities import CareerProfile, Education, Evidence, EvidenceSource, Skill
+from app.domain.entities import (
+    CareerProfile,
+    Certification,
+    Education,
+    Evidence,
+    EvidenceSource,
+    Experience,
+    Project,
+    Skill,
+)
 from app.domain.value_objects import EvidenceSourceType, EvidenceSubjectType
 
 
@@ -44,6 +53,32 @@ def test_evidence_source_create_sets_retrieved_at():
     assert source.source_type == EvidenceSourceType.GITHUB
     assert source.retrieved_at is not None
     assert source.last_verified_at is None
+
+
+def test_evidence_source_mark_verified_updates_in_place():
+    source = EvidenceSource.create(source_type=EvidenceSourceType.GITHUB, label="repo")
+    source_id_before = source.id
+
+    assert source.last_verified_at is None
+    source.mark_verified()
+
+    assert source.id == source_id_before
+    assert source.last_verified_at is not None
+
+
+def test_project_experience_education_certification_create_factories():
+    profile_id = uuid4()
+
+    project = Project.create(career_profile_id=profile_id, name="SyntheticData")
+    experience = Experience.create(
+        career_profile_id=profile_id, title="Data Analyst", organization="Acme"
+    )
+    education = Education.create(career_profile_id=profile_id, institution="Some University")
+    certification = Certification.create(career_profile_id=profile_id, name="Some Cert")
+
+    for entity in (project, experience, education, certification):
+        assert entity.id is not None
+        assert entity.career_profile_id == profile_id
 
 
 def test_evidence_links_subject_to_source():

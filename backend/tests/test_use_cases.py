@@ -6,9 +6,10 @@ from app.application.use_cases import (
     add_skill,
     attach_evidence_to_skill,
     create_career_profile,
+    link_evidence,
     register_evidence_source,
 )
-from app.domain.value_objects import EvidenceSourceType
+from app.domain.value_objects import EvidenceSourceType, EvidenceSubjectType
 from app.infrastructure.db.in_memory import (
     InMemoryCareerProfileRepository,
     InMemoryEvidenceRepository,
@@ -73,6 +74,21 @@ def test_register_evidence_source_is_idempotent_for_same_uri(repos):
     assert source1.id == source2.id
 
 
+def test_register_evidence_source_without_uri_always_creates_new(repos):
+    first = register_evidence_source(
+        source_repo=repos["source"],
+        source_type=EvidenceSourceType.MANUAL,
+        source_label="manual note",
+    )
+    second = register_evidence_source(
+        source_repo=repos["source"],
+        source_type=EvidenceSourceType.MANUAL,
+        source_label="manual note",
+    )
+
+    assert first.id != second.id
+
+
 def test_attach_evidence_creates_source_and_evidence(repos):
     profile = create_career_profile(repo=repos["profile"], user_id=uuid4(), display_name="Metehan")
     skill = add_skill(
@@ -99,43 +115,53 @@ def test_attach_evidence_creates_source_and_evidence(repos):
     assert stored[0].id == evidence.id
 
 
-def test_two_evidence_records_can_share_one_source(repos):
+def test_one_source_can_support_multiple_subjects_without_duplication(repos):
     profile = create_career_profile(repo=repos["profile"], user_id=uuid4(), display_name="Metehan")
-    skill1 = add_skill(
+    skill = add_skill(
         profile_repo=repos["profile"],
         skill_repo=repos["skill"],
         career_profile_id=profile.id,
         name="Python",
     )
-    skill2 = add_skill(
-        profile_repo=repos["profile"],
-        skill_repo=repos["skill"],
-        career_profile_id=profile.id,
-        name="Data Analysis",
-    )
-
-    evidence1 = attach_evidence_to_skill(
-        skill_repo=repos["skill"],
+    project_id = uuid4()
+    source = register_evidence_source(
         source_repo=repos["source"],
-        evidence_repo=repos["evidence"],
-        skill_id=skill1.id,
         source_type=EvidenceSourceType.GITHUB,
         source_label="GitHub: SyntheticData",
         source_uri="https://github.com/example/synthetic-data",
-        excerpt="Python code",
-    )
-    evidence2 = attach_evidence_to_skill(
-        skill_repo=repos["skill"],
-        source_repo=repos["source"],
-        evidence_repo=repos["evidence"],
-        skill_id=skill2.id,
-        source_type=EvidenceSourceType.GITHUB,
-        source_label="GitHub: SyntheticData",
-        source_uri="https://github.com/example/synthetic-data",
-        excerpt="Data generation workflow",
     )
 
-    assert evidence1.evidence_source_id == evidence2.evidence_source_id
+    skill_evidence = link_evidence(
+        evidence_repo=repos["evidence"],
+        source_repo=repos["source"],
+        subject_type=EvidenceSubjectType.SKILL,
+        subject_id=skill.id,
+        evidence_source_id=source.id,
+        excerpt="Repository is written in Python",
+    )
+    project_evidence = link_evidence(
+        evidence_repo=repos["evidence"],
+        source_repo=repos["source"],
+        subject_type=EvidenceSubjectType.PROJECT,
+        subject_id=project_id,
+        evidence_source_id=source.id,
+        excerpt="This repository is the project itself",
+    )
+
+    assert skill_evidence.evidence_source_id == project_evidence.evidence_source_id
+    assert len(repos["evidence"].list_for_subject("skill", skill.id)) == 1
+    assert len(repos["evidence"].list_for_subject("project", project_id)) == 1
+
+
+def test_link_evidence_raises_for_unknown_source(repos):
+    with pytest.raises(ValueError):
+        link_evidence(
+            evidence_repo=repos["evidence"],
+            source_repo=repos["source"],
+            subject_type=EvidenceSubjectType.SKILL,
+            subject_id=uuid4(),
+            evidence_source_id=uuid4(),
+        )
 
 
 def test_attach_evidence_raises_for_unknown_skill(repos):

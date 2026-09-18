@@ -46,6 +46,11 @@ class EvidenceSource:
             retrieved_at=datetime.now(UTC),
         )
 
+    def mark_verified(self) -> None:
+        """Record that this source was re-checked without changing its identity."""
+
+        self.last_verified_at = datetime.now(UTC)
+
 
 @dataclass(frozen=True)
 class Evidence:
