@@ -5,7 +5,16 @@ from __future__ import annotations
 from typing import Protocol
 from uuid import UUID
 
-from app.domain.entities import CareerProfile, Evidence, EvidenceSource, Skill
+from app.domain.entities import (
+    CareerProfile,
+    Certification,
+    Education,
+    Evidence,
+    EvidenceSource,
+    Experience,
+    Project,
+    Skill,
+)
 from app.domain.value_objects import EvidenceSourceType
 
 
@@ -23,6 +32,38 @@ class SkillRepository(Protocol):
     def get(self, skill_id: UUID) -> Skill | None: ...
 
     def list_for_profile(self, career_profile_id: UUID) -> list[Skill]: ...
+
+
+class ProjectRepository(Protocol):
+    def save(self, project: Project) -> None: ...
+
+    def get(self, project_id: UUID) -> Project | None: ...
+
+    def list_for_profile(self, career_profile_id: UUID) -> list[Project]: ...
+
+
+class ExperienceRepository(Protocol):
+    def save(self, experience: Experience) -> None: ...
+
+    def get(self, experience_id: UUID) -> Experience | None: ...
+
+    def list_for_profile(self, career_profile_id: UUID) -> list[Experience]: ...
+
+
+class EducationRepository(Protocol):
+    def save(self, education: Education) -> None: ...
+
+    def get(self, education_id: UUID) -> Education | None: ...
+
+    def list_for_profile(self, career_profile_id: UUID) -> list[Education]: ...
+
+
+class CertificationRepository(Protocol):
+    def save(self, certification: Certification) -> None: ...
+
+    def get(self, certification_id: UUID) -> Certification | None: ...
+
+    def list_for_profile(self, career_profile_id: UUID) -> list[Certification]: ...
 
 
 class EvidenceSourceRepository(Protocol):

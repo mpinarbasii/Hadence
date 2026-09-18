@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from app.domain.entities import CareerProfile, Evidence, EvidenceSource, Skill
+from app.domain.entities import (
+    CareerProfile,
+    Certification,
+    Education,
+    Evidence,
+    EvidenceSource,
+    Experience,
+    Project,
+    Skill,
+)
 from app.domain.value_objects import EvidenceSourceType
 
 
@@ -37,6 +46,62 @@ class InMemorySkillRepository:
 
     def list_for_profile(self, career_profile_id: UUID) -> list[Skill]:
         return [s for s in self._by_id.values() if s.career_profile_id == career_profile_id]
+
+
+class InMemoryProjectRepository:
+    def __init__(self) -> None:
+        self._by_id: dict[UUID, Project] = {}
+
+    def save(self, project: Project) -> None:
+        self._by_id[project.id] = project
+
+    def get(self, project_id: UUID) -> Project | None:
+        return self._by_id.get(project_id)
+
+    def list_for_profile(self, career_profile_id: UUID) -> list[Project]:
+        return [p for p in self._by_id.values() if p.career_profile_id == career_profile_id]
+
+
+class InMemoryExperienceRepository:
+    def __init__(self) -> None:
+        self._by_id: dict[UUID, Experience] = {}
+
+    def save(self, experience: Experience) -> None:
+        self._by_id[experience.id] = experience
+
+    def get(self, experience_id: UUID) -> Experience | None:
+        return self._by_id.get(experience_id)
+
+    def list_for_profile(self, career_profile_id: UUID) -> list[Experience]:
+        return [e for e in self._by_id.values() if e.career_profile_id == career_profile_id]
+
+
+class InMemoryEducationRepository:
+    def __init__(self) -> None:
+        self._by_id: dict[UUID, Education] = {}
+
+    def save(self, education: Education) -> None:
+        self._by_id[education.id] = education
+
+    def get(self, education_id: UUID) -> Education | None:
+        return self._by_id.get(education_id)
+
+    def list_for_profile(self, career_profile_id: UUID) -> list[Education]:
+        return [e for e in self._by_id.values() if e.career_profile_id == career_profile_id]
+
+
+class InMemoryCertificationRepository:
+    def __init__(self) -> None:
+        self._by_id: dict[UUID, Certification] = {}
+
+    def save(self, certification: Certification) -> None:
+        self._by_id[certification.id] = certification
+
+    def get(self, certification_id: UUID) -> Certification | None:
+        return self._by_id.get(certification_id)
+
+    def list_for_profile(self, career_profile_id: UUID) -> list[Certification]:
+        return [c for c in self._by_id.values() if c.career_profile_id == career_profile_id]
 
 
 class InMemoryEvidenceSourceRepository:

@@ -2,13 +2,27 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
-from app.domain.entities import CareerProfile, Evidence, EvidenceSource, Skill
+from app.domain.entities import (
+    CareerProfile,
+    Certification,
+    Education,
+    Evidence,
+    EvidenceSource,
+    Experience,
+    Project,
+    Skill,
+)
 from app.domain.ports.repositories import (
     CareerProfileRepository,
+    CertificationRepository,
+    EducationRepository,
     EvidenceRepository,
     EvidenceSourceRepository,
+    ExperienceRepository,
+    ProjectRepository,
     SkillRepository,
 )
 from app.domain.value_objects import EvidenceSourceType, EvidenceSubjectType
@@ -41,6 +55,104 @@ def add_skill(
     skill_repo.save(skill)
     profile_repo.save(profile)
     return skill
+
+
+def add_project(
+    *,
+    profile_repo: CareerProfileRepository,
+    project_repo: ProjectRepository,
+    career_profile_id: UUID,
+    name: str,
+    description: str | None = None,
+    url: str | None = None,
+) -> Project:
+    profile = profile_repo.get(career_profile_id)
+    if profile is None:
+        raise ValueError(f"CareerProfile {career_profile_id} not found")
+
+    project = Project.create(
+        career_profile_id=career_profile_id, name=name, description=description, url=url
+    )
+    profile.add_project(project.id)
+    project_repo.save(project)
+    profile_repo.save(profile)
+    return project
+
+
+def add_experience(
+    *,
+    profile_repo: CareerProfileRepository,
+    experience_repo: ExperienceRepository,
+    career_profile_id: UUID,
+    title: str,
+    organization: str,
+    description: str | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+) -> Experience:
+    profile = profile_repo.get(career_profile_id)
+    if profile is None:
+        raise ValueError(f"CareerProfile {career_profile_id} not found")
+
+    experience = Experience.create(
+        career_profile_id=career_profile_id,
+        title=title,
+        organization=organization,
+        description=description,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    profile.add_experience(experience.id)
+    experience_repo.save(experience)
+    profile_repo.save(profile)
+    return experience
+
+
+def add_education(
+    *,
+    profile_repo: CareerProfileRepository,
+    education_repo: EducationRepository,
+    career_profile_id: UUID,
+    institution: str,
+    field_of_study: str | None = None,
+    degree: str | None = None,
+) -> Education:
+    profile = profile_repo.get(career_profile_id)
+    if profile is None:
+        raise ValueError(f"CareerProfile {career_profile_id} not found")
+
+    education = Education.create(
+        career_profile_id=career_profile_id,
+        institution=institution,
+        field_of_study=field_of_study,
+        degree=degree,
+    )
+    profile.add_education(education.id)
+    education_repo.save(education)
+    profile_repo.save(profile)
+    return education
+
+
+def add_certification(
+    *,
+    profile_repo: CareerProfileRepository,
+    certification_repo: CertificationRepository,
+    career_profile_id: UUID,
+    name: str,
+    issuer: str | None = None,
+    issued_at: datetime | None = None,
+) -> Certification:
+    profile = profile_repo.get(career_profile_id)
+    if profile is None:
+        raise ValueError(f"CareerProfile {career_profile_id} not found")
+
+    certification = Certification.create(
+        career_profile_id=career_profile_id, name=name, issuer=issuer, issued_at=issued_at
+    )
+    profile.add_certification(certification.id)
+    certification_repo.save(certification)
+    profile_repo.save(profile)
+    return certification
 
 
 def register_evidence_source(

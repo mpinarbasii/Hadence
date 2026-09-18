@@ -32,6 +32,30 @@ def test_career_profile_add_skill_prevents_duplicate_ids():
         profile.add_skill(skill_id)
 
 
+def test_career_profile_add_project_experience_education_certification_prevent_duplicates():
+    profile = CareerProfile.create(user_id=uuid4(), display_name="Metehan")
+    project_id, experience_id, education_id, certification_id = uuid4(), uuid4(), uuid4(), uuid4()
+
+    profile.add_project(project_id)
+    profile.add_experience(experience_id)
+    profile.add_education(education_id)
+    profile.add_certification(certification_id)
+
+    assert profile.project_ids == [project_id]
+    assert profile.experience_ids == [experience_id]
+    assert profile.education_ids == [education_id]
+    assert profile.certification_ids == [certification_id]
+
+    with pytest.raises(ValueError):
+        profile.add_project(project_id)
+    with pytest.raises(ValueError):
+        profile.add_experience(experience_id)
+    with pytest.raises(ValueError):
+        profile.add_education(education_id)
+    with pytest.raises(ValueError):
+        profile.add_certification(certification_id)
+
+
 def test_entity_factories_create_ids():
     profile_id = uuid4()
 

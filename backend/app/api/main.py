@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -9,7 +10,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app.api.dependencies import RepositoryBundle, get_repository_bundle
-from app.application.use_cases import add_skill, attach_evidence_to_skill, create_career_profile
+from app.application.use_cases import (
+    add_certification,
+    add_education,
+    add_experience,
+    add_project,
+    add_skill,
+    attach_evidence_to_skill,
+    create_career_profile,
+)
 from app.config import get_settings
 from app.domain.value_objects import EvidenceSourceType
 
@@ -116,6 +125,174 @@ def create_skill(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return SkillResponse(id=skill.id, career_profile_id=skill.career_profile_id, name=skill.name)
+
+
+class AddProjectRequest(BaseModel):
+    name: str
+    description: str | None = None
+    url: str | None = None
+
+
+class ProjectResponse(BaseModel):
+    id: UUID
+    career_profile_id: UUID
+    name: str
+    description: str | None
+    url: str | None
+
+
+@app.post("/profiles/{profile_id}/projects", response_model=ProjectResponse)
+def create_project(
+    profile_id: UUID,
+    payload: AddProjectRequest,
+    repos: RepositoryBundle = Depends(get_repository_bundle),
+) -> ProjectResponse:
+    try:
+        project = add_project(
+            profile_repo=repos.profile,
+            project_repo=repos.project,
+            career_profile_id=profile_id,
+            name=payload.name,
+            description=payload.description,
+            url=payload.url,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return ProjectResponse(
+        id=project.id,
+        career_profile_id=project.career_profile_id,
+        name=project.name,
+        description=project.description,
+        url=project.url,
+    )
+
+
+class AddExperienceRequest(BaseModel):
+    title: str
+    organization: str
+    description: str | None = None
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+
+
+class ExperienceResponse(BaseModel):
+    id: UUID
+    career_profile_id: UUID
+    title: str
+    organization: str
+    description: str | None
+    start_date: datetime | None
+    end_date: datetime | None
+
+
+@app.post("/profiles/{profile_id}/experiences", response_model=ExperienceResponse)
+def create_experience(
+    profile_id: UUID,
+    payload: AddExperienceRequest,
+    repos: RepositoryBundle = Depends(get_repository_bundle),
+) -> ExperienceResponse:
+    try:
+        experience = add_experience(
+            profile_repo=repos.profile,
+            experience_repo=repos.experience,
+            career_profile_id=profile_id,
+            title=payload.title,
+            organization=payload.organization,
+            description=payload.description,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return ExperienceResponse(
+        id=experience.id,
+        career_profile_id=experience.career_profile_id,
+        title=experience.title,
+        organization=experience.organization,
+        description=experience.description,
+        start_date=experience.start_date,
+        end_date=experience.end_date,
+    )
+
+
+class AddEducationRequest(BaseModel):
+    institution: str
+    field_of_study: str | None = None
+    degree: str | None = None
+
+
+class EducationResponse(BaseModel):
+    id: UUID
+    career_profile_id: UUID
+    institution: str
+    field_of_study: str | None
+    degree: str | None
+
+
+@app.post("/profiles/{profile_id}/educations", response_model=EducationResponse)
+def create_education(
+    profile_id: UUID,
+    payload: AddEducationRequest,
+    repos: RepositoryBundle = Depends(get_repository_bundle),
+) -> EducationResponse:
+    try:
+        education = add_education(
+            profile_repo=repos.profile,
+            education_repo=repos.education,
+            career_profile_id=profile_id,
+            institution=payload.institution,
+            field_of_study=payload.field_of_study,
+            degree=payload.degree,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return EducationResponse(
+        id=education.id,
+        career_profile_id=education.career_profile_id,
+        institution=education.institution,
+        field_of_study=education.field_of_study,
+        degree=education.degree,
+    )
+
+
+class AddCertificationRequest(BaseModel):
+    name: str
+    issuer: str | None = None
+    issued_at: datetime | None = None
+
+
+class CertificationResponse(BaseModel):
+    id: UUID
+    career_profile_id: UUID
+    name: str
+    issuer: str | None
+    issued_at: datetime | None
+
+
+@app.post("/profiles/{profile_id}/certifications", response_model=CertificationResponse)
+def create_certification(
+    profile_id: UUID,
+    payload: AddCertificationRequest,
+    repos: RepositoryBundle = Depends(get_repository_bundle),
+) -> CertificationResponse:
+    try:
+        certification = add_certification(
+            profile_repo=repos.profile,
+            certification_repo=repos.certification,
+            career_profile_id=profile_id,
+            name=payload.name,
+            issuer=payload.issuer,
+            issued_at=payload.issued_at,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return CertificationResponse(
+        id=certification.id,
+        career_profile_id=certification.career_profile_id,
+        name=certification.name,
+        issuer=certification.issuer,
+        issued_at=certification.issued_at,
+    )
 
 
 class AttachEvidenceRequest(BaseModel):

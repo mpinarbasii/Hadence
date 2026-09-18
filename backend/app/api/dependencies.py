@@ -9,15 +9,23 @@ from sqlalchemy.orm import Session
 
 from app.domain.ports.repositories import (
     CareerProfileRepository,
+    CertificationRepository,
+    EducationRepository,
     EvidenceRepository,
     EvidenceSourceRepository,
+    ExperienceRepository,
+    ProjectRepository,
     SkillRepository,
 )
 from app.infrastructure.db.engine import get_session
 from app.infrastructure.db.repositories import (
     SqlAlchemyCareerProfileRepository,
+    SqlAlchemyCertificationRepository,
+    SqlAlchemyEducationRepository,
     SqlAlchemyEvidenceRepository,
     SqlAlchemyEvidenceSourceRepository,
+    SqlAlchemyExperienceRepository,
+    SqlAlchemyProjectRepository,
     SqlAlchemySkillRepository,
 )
 
@@ -26,6 +34,10 @@ from app.infrastructure.db.repositories import (
 class RepositoryBundle:
     profile: CareerProfileRepository
     skill: SkillRepository
+    project: ProjectRepository
+    experience: ExperienceRepository
+    education: EducationRepository
+    certification: CertificationRepository
     source: EvidenceSourceRepository
     evidence: EvidenceRepository
 
@@ -37,6 +49,10 @@ def get_repository_bundle() -> Iterator[RepositoryBundle]:
         yield RepositoryBundle(
             profile=SqlAlchemyCareerProfileRepository(session),
             skill=SqlAlchemySkillRepository(session),
+            project=SqlAlchemyProjectRepository(session),
+            experience=SqlAlchemyExperienceRepository(session),
+            education=SqlAlchemyEducationRepository(session),
+            certification=SqlAlchemyCertificationRepository(session),
             source=SqlAlchemyEvidenceSourceRepository(session),
             evidence=SqlAlchemyEvidenceRepository(session),
         )

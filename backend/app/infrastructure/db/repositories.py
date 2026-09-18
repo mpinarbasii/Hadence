@@ -219,7 +219,7 @@ class SqlAlchemyEvidenceRepository:
         ]
 
 
-class SqlAlchemyProjectStore:
+class SqlAlchemyProjectRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
@@ -253,8 +253,22 @@ class SqlAlchemyProjectStore:
             url=model.url,
         )
 
+    def list_for_profile(self, career_profile_id: UUID) -> list[Project]:
+        stmt = select(ProjectModel).where(ProjectModel.career_profile_id == career_profile_id)
+        models = self._session.execute(stmt).scalars().all()
+        return [
+            Project(
+                id=m.id,
+                career_profile_id=m.career_profile_id,
+                name=m.name,
+                description=m.description,
+                url=m.url,
+            )
+            for m in models
+        ]
 
-class SqlAlchemyExperienceStore:
+
+class SqlAlchemyExperienceRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
@@ -280,8 +294,38 @@ class SqlAlchemyExperienceStore:
             model.end_date = experience.end_date
         self._session.commit()
 
+    def get(self, experience_id: UUID) -> Experience | None:
+        model = self._session.get(ExperienceModel, experience_id)
+        if model is None:
+            return None
+        return Experience(
+            id=model.id,
+            career_profile_id=model.career_profile_id,
+            title=model.title,
+            organization=model.organization,
+            description=model.description,
+            start_date=model.start_date,
+            end_date=model.end_date,
+        )
 
-class SqlAlchemyEducationStore:
+    def list_for_profile(self, career_profile_id: UUID) -> list[Experience]:
+        stmt = select(ExperienceModel).where(ExperienceModel.career_profile_id == career_profile_id)
+        models = self._session.execute(stmt).scalars().all()
+        return [
+            Experience(
+                id=m.id,
+                career_profile_id=m.career_profile_id,
+                title=m.title,
+                organization=m.organization,
+                description=m.description,
+                start_date=m.start_date,
+                end_date=m.end_date,
+            )
+            for m in models
+        ]
+
+
+class SqlAlchemyEducationRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
@@ -303,8 +347,34 @@ class SqlAlchemyEducationStore:
             model.degree = education.degree
         self._session.commit()
 
+    def get(self, education_id: UUID) -> Education | None:
+        model = self._session.get(EducationModel, education_id)
+        if model is None:
+            return None
+        return Education(
+            id=model.id,
+            career_profile_id=model.career_profile_id,
+            institution=model.institution,
+            field_of_study=model.field_of_study,
+            degree=model.degree,
+        )
 
-class SqlAlchemyCertificationStore:
+    def list_for_profile(self, career_profile_id: UUID) -> list[Education]:
+        stmt = select(EducationModel).where(EducationModel.career_profile_id == career_profile_id)
+        models = self._session.execute(stmt).scalars().all()
+        return [
+            Education(
+                id=m.id,
+                career_profile_id=m.career_profile_id,
+                institution=m.institution,
+                field_of_study=m.field_of_study,
+                degree=m.degree,
+            )
+            for m in models
+        ]
+
+
+class SqlAlchemyCertificationRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
@@ -325,3 +395,31 @@ class SqlAlchemyCertificationStore:
             model.issuer = certification.issuer
             model.issued_at = certification.issued_at
         self._session.commit()
+
+    def get(self, certification_id: UUID) -> Certification | None:
+        model = self._session.get(CertificationModel, certification_id)
+        if model is None:
+            return None
+        return Certification(
+            id=model.id,
+            career_profile_id=model.career_profile_id,
+            name=model.name,
+            issuer=model.issuer,
+            issued_at=model.issued_at,
+        )
+
+    def list_for_profile(self, career_profile_id: UUID) -> list[Certification]:
+        stmt = select(CertificationModel).where(
+            CertificationModel.career_profile_id == career_profile_id
+        )
+        models = self._session.execute(stmt).scalars().all()
+        return [
+            Certification(
+                id=m.id,
+                career_profile_id=m.career_profile_id,
+                name=m.name,
+                issuer=m.issuer,
+                issued_at=m.issued_at,
+            )
+            for m in models
+        ]

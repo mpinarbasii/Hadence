@@ -3,6 +3,10 @@ from uuid import uuid4
 import pytest
 
 from app.application.use_cases import (
+    add_certification,
+    add_education,
+    add_experience,
+    add_project,
     add_skill,
     attach_evidence_to_skill,
     create_career_profile,
@@ -12,8 +16,12 @@ from app.application.use_cases import (
 from app.domain.value_objects import EvidenceSourceType, EvidenceSubjectType
 from app.infrastructure.db.in_memory import (
     InMemoryCareerProfileRepository,
+    InMemoryCertificationRepository,
+    InMemoryEducationRepository,
     InMemoryEvidenceRepository,
     InMemoryEvidenceSourceRepository,
+    InMemoryExperienceRepository,
+    InMemoryProjectRepository,
     InMemorySkillRepository,
 )
 
@@ -23,6 +31,10 @@ def repos():
     return {
         "profile": InMemoryCareerProfileRepository(),
         "skill": InMemorySkillRepository(),
+        "project": InMemoryProjectRepository(),
+        "experience": InMemoryExperienceRepository(),
+        "education": InMemoryEducationRepository(),
+        "certification": InMemoryCertificationRepository(),
         "source": InMemoryEvidenceSourceRepository(),
         "evidence": InMemoryEvidenceRepository(),
     }
@@ -55,6 +67,76 @@ def test_add_skill_raises_for_unknown_profile(repos):
             career_profile_id=uuid4(),
             name="Python",
         )
+
+
+def test_add_project_links_it_to_the_profile(repos):
+    profile = create_career_profile(repo=repos["profile"], user_id=uuid4(), display_name="Metehan")
+
+    project = add_project(
+        profile_repo=repos["profile"],
+        project_repo=repos["project"],
+        career_profile_id=profile.id,
+        name="SyntheticData",
+        description="A synthetic data generation project",
+        url="https://github.com/example/synthetic-data",
+    )
+
+    updated_profile = repos["profile"].get(profile.id)
+    assert project.id in updated_profile.project_ids
+    assert repos["project"].get(project.id) is not None
+
+
+def test_add_project_raises_for_unknown_profile(repos):
+    with pytest.raises(ValueError):
+        add_project(
+            profile_repo=repos["profile"],
+            project_repo=repos["project"],
+            career_profile_id=uuid4(),
+            name="SyntheticData",
+        )
+
+
+def test_add_experience_links_it_to_the_profile(repos):
+    profile = create_career_profile(repo=repos["profile"], user_id=uuid4(), display_name="Metehan")
+
+    experience = add_experience(
+        profile_repo=repos["profile"],
+        experience_repo=repos["experience"],
+        career_profile_id=profile.id,
+        title="Data Analyst",
+        organization="Acme",
+    )
+
+    updated_profile = repos["profile"].get(profile.id)
+    assert experience.id in updated_profile.experience_ids
+
+
+def test_add_education_links_it_to_the_profile(repos):
+    profile = create_career_profile(repo=repos["profile"], user_id=uuid4(), display_name="Metehan")
+
+    education = add_education(
+        profile_repo=repos["profile"],
+        education_repo=repos["education"],
+        career_profile_id=profile.id,
+        institution="Dokuz Eylul University",
+    )
+
+    updated_profile = repos["profile"].get(profile.id)
+    assert education.id in updated_profile.education_ids
+
+
+def test_add_certification_links_it_to_the_profile(repos):
+    profile = create_career_profile(repo=repos["profile"], user_id=uuid4(), display_name="Metehan")
+
+    certification = add_certification(
+        profile_repo=repos["profile"],
+        certification_repo=repos["certification"],
+        career_profile_id=profile.id,
+        name="AWS Certified Developer",
+    )
+
+    updated_profile = repos["profile"].get(profile.id)
+    assert certification.id in updated_profile.certification_ids
 
 
 def test_register_evidence_source_is_idempotent_for_same_uri(repos):
@@ -123,7 +205,13 @@ def test_one_source_can_support_multiple_subjects_without_duplication(repos):
         career_profile_id=profile.id,
         name="Python",
     )
-    project_id = uuid4()
+    project = add_project(
+        profile_repo=repos["profile"],
+        project_repo=repos["project"],
+        career_profile_id=profile.id,
+        name="SyntheticData",
+    )
+    project_id = project.id
     source = register_evidence_source(
         source_repo=repos["source"],
         source_type=EvidenceSourceType.GITHUB,

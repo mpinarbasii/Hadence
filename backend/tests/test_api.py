@@ -4,14 +4,22 @@ from app.api.dependencies import RepositoryBundle, get_repository_bundle
 from app.api.main import app
 from app.infrastructure.db.in_memory import (
     InMemoryCareerProfileRepository,
+    InMemoryCertificationRepository,
+    InMemoryEducationRepository,
     InMemoryEvidenceRepository,
     InMemoryEvidenceSourceRepository,
+    InMemoryExperienceRepository,
+    InMemoryProjectRepository,
     InMemorySkillRepository,
 )
 
 _in_memory_bundle = RepositoryBundle(
     profile=InMemoryCareerProfileRepository(),
     skill=InMemorySkillRepository(),
+    project=InMemoryProjectRepository(),
+    experience=InMemoryExperienceRepository(),
+    education=InMemoryEducationRepository(),
+    certification=InMemoryCertificationRepository(),
     source=InMemoryEvidenceSourceRepository(),
     evidence=InMemoryEvidenceRepository(),
 )
@@ -61,6 +69,59 @@ def test_create_profile_then_add_skill_then_attach_evidence():
     body = evidence_resp.json()
     assert body["subject_type"] == "skill"
     assert body["subject_id"] == skill_id
+
+
+def test_create_project_experience_education_certification_for_profile():
+    profile_resp = client.post(
+        "/profiles",
+        json={
+            "user_id": "22222222-2222-2222-2222-222222222222",
+            "display_name": "Metehan",
+        },
+    )
+    profile_id = profile_resp.json()["id"]
+
+    project_resp = client.post(
+        f"/profiles/{profile_id}/projects",
+        json={"name": "SyntheticData", "url": "https://github.com/example/synthetic-data"},
+    )
+    assert project_resp.status_code == 200
+    assert project_resp.json()["name"] == "SyntheticData"
+
+    experience_resp = client.post(
+        f"/profiles/{profile_id}/experiences",
+        json={"title": "Data Analyst", "organization": "Acme"},
+    )
+    assert experience_resp.status_code == 200
+    assert experience_resp.json()["organization"] == "Acme"
+
+    education_resp = client.post(
+        f"/profiles/{profile_id}/educations",
+        json={"institution": "Dokuz Eylul University"},
+    )
+    assert education_resp.status_code == 200
+    assert education_resp.json()["institution"] == "Dokuz Eylul University"
+
+    certification_resp = client.post(
+        f"/profiles/{profile_id}/certifications",
+        json={"name": "AWS Certified Developer"},
+    )
+    assert certification_resp.status_code == 200
+    assert certification_resp.json()["name"] == "AWS Certified Developer"
+
+    profile_check = client.get(f"/profiles/{profile_id}")
+    body = profile_check.json()
+    assert project_resp.json()["id"] in body["project_ids"]
+    assert experience_resp.json()["id"] in body["experience_ids"]
+    assert education_resp.json()["id"] in body["education_ids"]
+    assert certification_resp.json()["id"] in body["certification_ids"]
+
+
+def test_create_project_for_unknown_profile_returns_404():
+    response = client.post(
+        "/profiles/00000000-0000-0000-0000-000000000000/projects", json={"name": "X"}
+    )
+    assert response.status_code == 404
 
 
 def test_get_unknown_profile_returns_404():
