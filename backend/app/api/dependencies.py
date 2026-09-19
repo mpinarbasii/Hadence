@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
+from app.domain.ports.github_client import GitHubClient
 from app.domain.ports.repositories import (
     CareerProfileRepository,
     CertificationRepository,
@@ -28,6 +30,7 @@ from app.infrastructure.db.repositories import (
     SqlAlchemyProjectRepository,
     SqlAlchemySkillRepository,
 )
+from app.infrastructure.integrations.github.client import HttpGitHubClient
 
 
 @dataclass(frozen=True)
@@ -61,3 +64,7 @@ def get_repository_bundle() -> Iterator[RepositoryBundle]:
             next(session_iter)
         except StopIteration:
             pass
+
+
+def get_github_client() -> GitHubClient:
+    return HttpGitHubClient(token=get_settings().github_token)

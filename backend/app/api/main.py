@@ -9,7 +9,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app.api.dependencies import RepositoryBundle, get_repository_bundle
+from app.api.dependencies import RepositoryBundle, get_github_client, get_repository_bundle
 from app.application.use_cases import (
     add_certification,
     add_education,
@@ -17,9 +17,11 @@ from app.application.use_cases import (
     add_project,
     add_skill,
     attach_evidence_to_skill,
+    collect_github_evidence,
     create_career_profile,
 )
 from app.config import get_settings
+from app.domain.ports.github_client import GitHubApiError, GitHubClient, GitHubUserNotFoundError
 from app.domain.value_objects import EvidenceSourceType
 
 app = FastAPI(title="Hadence API", version="0.1.0")
@@ -339,4 +341,53 @@ def create_evidence(
         evidence_source_id=evidence.evidence_source_id,
         excerpt=evidence.excerpt,
         relevance_note=evidence.relevance_note,
+    )
+
+
+class CollectGitHubEvidenceRequest(BaseModel):
+    github_username: str
+
+
+class GitHubCollectionResponse(BaseModel):
+    linked_evidence: list[EvidenceResponse]
+    suggested_skills: list[str]
+
+
+@app.post("/profiles/{profile_id}/github-evidence", response_model=GitHubCollectionResponse)
+def collect_github_evidence_endpoint(
+    profile_id: UUID,
+    payload: CollectGitHubEvidenceRequest,
+    repos: RepositoryBundle = Depends(get_repository_bundle),
+    github_client: GitHubClient = Depends(get_github_client),
+) -> GitHubCollectionResponse:
+    try:
+        result = collect_github_evidence(
+            profile_repo=repos.profile,
+            skill_repo=repos.skill,
+            source_repo=repos.source,
+            evidence_repo=repos.evidence,
+            github_client=github_client,
+            career_profile_id=profile_id,
+            github_username=payload.github_username,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except GitHubUserNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except GitHubApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return GitHubCollectionResponse(
+        linked_evidence=[
+            EvidenceResponse(
+                id=e.id,
+                subject_type=e.subject_type.value,
+                subject_id=e.subject_id,
+                evidence_source_id=e.evidence_source_id,
+                excerpt=e.excerpt,
+                relevance_note=e.relevance_note,
+            )
+            for e in result.linked_evidence
+        ],
+        suggested_skills=result.suggested_skills,
     )

@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     test_database_url: str | None = None
     environment: str = "development"
     api_cors_origins: str = "http://localhost:3000"
+    github_token: str | None = None
 
 
 @lru_cache

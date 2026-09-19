@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from app.domain.entities import (
     Project,
     Skill,
 )
+from app.domain.ports.github_client import GitHubClient
 from app.domain.ports.repositories import (
     CareerProfileRepository,
     CertificationRepository,
@@ -233,4 +235,92 @@ def attach_evidence_to_skill(
         evidence_source_id=source.id,
         excerpt=excerpt,
         relevance_note=relevance_note,
+    )
+
+
+@dataclass(frozen=True)
+class GitHubCollectionResult:
+    """Outcome of running the GitHub Evidence Collector once.
+
+    `linked_evidence` only ever links to skills the user already claimed —
+    see `collect_github_evidence`'s docstring for why. `suggested_skills`
+    surfaces languages GitHub reports that have no matching skill yet, as
+    plain names for the user to review and decide whether to add
+    themselves — Hadence never adds them on the user's behalf.
+    """
+
+    linked_evidence: list[Evidence]
+    suggested_skills: list[str]
+
+
+def collect_github_evidence(
+    *,
+    profile_repo: CareerProfileRepository,
+    skill_repo: SkillRepository,
+    source_repo: EvidenceSourceRepository,
+    evidence_repo: EvidenceRepository,
+    github_client: GitHubClient,
+    career_profile_id: UUID,
+    github_username: str,
+) -> GitHubCollectionResult:
+    """Fetch a GitHub user's public repositories and turn them into evidence.
+
+    Deliberately does NOT create new skills. A repository written in a
+    language the user hasn't claimed as a skill is not evidence of a claim
+    Hadence is allowed to make on the user's behalf — see docs/domain-model.md
+    §1 and the "no unsupported career claims" product principle. Such
+    languages are returned as `suggested_skills` instead; the user (or a
+    later use case, once they explicitly add the skill) decides.
+
+    Forked repositories are skipped — a fork is not evidence of the user's
+    own work. Repeated calls are safe: `register_evidence_source` reuses an
+    existing source for the same repo URL, and this use case skips creating
+    a second Evidence row for a skill that's already linked to that source.
+    """
+
+    profile = profile_repo.get(career_profile_id)
+    if profile is None:
+        raise ValueError(f"CareerProfile {career_profile_id} not found")
+
+    skills_by_lower_name = {s.name.lower(): s for s in skill_repo.list_for_profile(profile.id)}
+
+    linked_evidence: list[Evidence] = []
+    suggested_skills: set[str] = set()
+
+    for repo in github_client.list_public_repositories(github_username):
+        if repo.is_fork or not repo.primary_language:
+            continue
+
+        skill = skills_by_lower_name.get(repo.primary_language.lower())
+        if skill is None:
+            suggested_skills.add(repo.primary_language)
+            continue
+
+        source = register_evidence_source(
+            source_repo=source_repo,
+            source_type=EvidenceSourceType.GITHUB,
+            source_label=f"GitHub: {repo.name}",
+            source_uri=repo.html_url,
+        )
+
+        already_linked = any(
+            e.evidence_source_id == source.id
+            for e in evidence_repo.list_for_subject(EvidenceSubjectType.SKILL, skill.id)
+        )
+        if already_linked:
+            continue
+
+        evidence = link_evidence(
+            evidence_repo=evidence_repo,
+            source_repo=source_repo,
+            subject_type=EvidenceSubjectType.SKILL,
+            subject_id=skill.id,
+            evidence_source_id=source.id,
+            excerpt=f"{repo.primary_language} is the primary language of this repository",
+            relevance_note="Detected by the GitHub Evidence Collector",
+        )
+        linked_evidence.append(evidence)
+
+    return GitHubCollectionResult(
+        linked_evidence=linked_evidence, suggested_skills=sorted(suggested_skills)
     )

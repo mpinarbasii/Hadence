@@ -1,7 +1,12 @@
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import RepositoryBundle, get_repository_bundle
+from app.api.dependencies import (
+    RepositoryBundle,
+    get_github_client,
+    get_repository_bundle,
+)
 from app.api.main import app
+from app.domain.ports.github_client import GitHubRepositoryInfo
 from app.infrastructure.db.in_memory import (
     InMemoryCareerProfileRepository,
     InMemoryCertificationRepository,
@@ -12,6 +17,7 @@ from app.infrastructure.db.in_memory import (
     InMemoryProjectRepository,
     InMemorySkillRepository,
 )
+from app.infrastructure.integrations.github.fake import FakeGitHubClient
 
 _in_memory_bundle = RepositoryBundle(
     profile=InMemoryCareerProfileRepository(),
@@ -23,6 +29,7 @@ _in_memory_bundle = RepositoryBundle(
     source=InMemoryEvidenceSourceRepository(),
     evidence=InMemoryEvidenceRepository(),
 )
+_fake_github = FakeGitHubClient()
 
 
 def in_memory_bundle() -> RepositoryBundle:
@@ -31,7 +38,12 @@ def in_memory_bundle() -> RepositoryBundle:
     return _in_memory_bundle
 
 
+def fake_github_client() -> FakeGitHubClient:
+    return _fake_github
+
+
 app.dependency_overrides[get_repository_bundle] = in_memory_bundle
+app.dependency_overrides[get_github_client] = fake_github_client
 client = TestClient(app)
 
 
@@ -132,5 +144,62 @@ def test_get_unknown_profile_returns_404():
 def test_add_skill_to_unknown_profile_returns_404():
     response = client.post(
         "/profiles/00000000-0000-0000-0000-000000000000/skills", json={"name": "Python"}
+    )
+    assert response.status_code == 404
+
+
+def test_collect_github_evidence_endpoint():
+    profile_resp = client.post(
+        "/profiles",
+        json={
+            "user_id": "44444444-4444-4444-4444-444444444444",
+            "display_name": "Metehan",
+        },
+    )
+    profile_id = profile_resp.json()["id"]
+    client.post(f"/profiles/{profile_id}/skills", json={"name": "Python"})
+
+    _fake_github.seed(
+        "mpinarbasii",
+        [
+            GitHubRepositoryInfo(
+                name="synthetic-data",
+                html_url="https://github.com/mpinarbasii/synthetic-data",
+                description="A synthetic data generator",
+                primary_language="Python",
+                is_fork=False,
+            ),
+            GitHubRepositoryInfo(
+                name="rust-cli",
+                html_url="https://github.com/mpinarbasii/rust-cli",
+                description=None,
+                primary_language="Rust",
+                is_fork=False,
+            ),
+        ],
+    )
+
+    response = client.post(
+        f"/profiles/{profile_id}/github-evidence", json={"github_username": "mpinarbasii"}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["linked_evidence"]) == 1
+    assert body["suggested_skills"] == ["Rust"]
+
+
+def test_collect_github_evidence_returns_404_for_unknown_github_user():
+    profile_resp = client.post(
+        "/profiles",
+        json={
+            "user_id": "55555555-5555-5555-5555-555555555555",
+            "display_name": "Metehan",
+        },
+    )
+    profile_id = profile_resp.json()["id"]
+    _fake_github.seed_not_found("ghost-user")
+
+    response = client.post(
+        f"/profiles/{profile_id}/github-evidence", json={"github_username": "ghost-user"}
     )
     assert response.status_code == 404

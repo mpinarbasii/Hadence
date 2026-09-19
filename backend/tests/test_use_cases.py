@@ -9,10 +9,12 @@ from app.application.use_cases import (
     add_project,
     add_skill,
     attach_evidence_to_skill,
+    collect_github_evidence,
     create_career_profile,
     link_evidence,
     register_evidence_source,
 )
+from app.domain.ports.github_client import GitHubRepositoryInfo
 from app.domain.value_objects import EvidenceSourceType, EvidenceSubjectType
 from app.infrastructure.db.in_memory import (
     InMemoryCareerProfileRepository,
@@ -24,6 +26,7 @@ from app.infrastructure.db.in_memory import (
     InMemoryProjectRepository,
     InMemorySkillRepository,
 )
+from app.infrastructure.integrations.github.fake import FakeGitHubClient
 
 
 @pytest.fixture
@@ -261,4 +264,219 @@ def test_attach_evidence_raises_for_unknown_skill(repos):
             skill_id=uuid4(),
             source_type=EvidenceSourceType.MANUAL,
             source_label="manual entry",
+        )
+
+
+def test_collect_github_evidence_links_matching_skill():
+    repos = {
+        "profile": InMemoryCareerProfileRepository(),
+        "skill": InMemorySkillRepository(),
+        "source": InMemoryEvidenceSourceRepository(),
+        "evidence": InMemoryEvidenceRepository(),
+    }
+    github = FakeGitHubClient()
+    profile = create_career_profile(repo=repos["profile"], user_id=uuid4(), display_name="Metehan")
+    skill = add_skill(
+        profile_repo=repos["profile"],
+        skill_repo=repos["skill"],
+        career_profile_id=profile.id,
+        name="Python",
+    )
+    github.seed(
+        "mpinarbasii",
+        [
+            GitHubRepositoryInfo(
+                name="synthetic-data",
+                html_url="https://github.com/mpinarbasii/synthetic-data",
+                description="A synthetic data generator",
+                primary_language="Python",
+                is_fork=False,
+            )
+        ],
+    )
+
+    result = collect_github_evidence(
+        profile_repo=repos["profile"],
+        skill_repo=repos["skill"],
+        source_repo=repos["source"],
+        evidence_repo=repos["evidence"],
+        github_client=github,
+        career_profile_id=profile.id,
+        github_username="mpinarbasii",
+    )
+
+    assert len(result.linked_evidence) == 1
+    assert result.linked_evidence[0].subject_id == skill.id
+    assert result.suggested_skills == []
+
+
+def test_collect_github_evidence_suggests_unclaimed_language_without_creating_skill():
+    repos = {
+        "profile": InMemoryCareerProfileRepository(),
+        "skill": InMemorySkillRepository(),
+        "source": InMemoryEvidenceSourceRepository(),
+        "evidence": InMemoryEvidenceRepository(),
+    }
+    github = FakeGitHubClient()
+    profile = create_career_profile(repo=repos["profile"], user_id=uuid4(), display_name="Metehan")
+    github.seed(
+        "mpinarbasii",
+        [
+            GitHubRepositoryInfo(
+                name="rust-cli",
+                html_url="https://github.com/mpinarbasii/rust-cli",
+                description=None,
+                primary_language="Rust",
+                is_fork=False,
+            )
+        ],
+    )
+
+    result = collect_github_evidence(
+        profile_repo=repos["profile"],
+        skill_repo=repos["skill"],
+        source_repo=repos["source"],
+        evidence_repo=repos["evidence"],
+        github_client=github,
+        career_profile_id=profile.id,
+        github_username="mpinarbasii",
+    )
+
+    assert result.linked_evidence == []
+    assert result.suggested_skills == ["Rust"]
+    # No skill was silently created — see collect_github_evidence's docstring.
+    assert repos["skill"].list_for_profile(profile.id) == []
+
+
+def test_collect_github_evidence_skips_forks():
+    repos = {
+        "profile": InMemoryCareerProfileRepository(),
+        "skill": InMemorySkillRepository(),
+        "source": InMemoryEvidenceSourceRepository(),
+        "evidence": InMemoryEvidenceRepository(),
+    }
+    github = FakeGitHubClient()
+    profile = create_career_profile(repo=repos["profile"], user_id=uuid4(), display_name="Metehan")
+    add_skill(
+        profile_repo=repos["profile"],
+        skill_repo=repos["skill"],
+        career_profile_id=profile.id,
+        name="Python",
+    )
+    github.seed(
+        "mpinarbasii",
+        [
+            GitHubRepositoryInfo(
+                name="forked-repo",
+                html_url="https://github.com/mpinarbasii/forked-repo",
+                description=None,
+                primary_language="Python",
+                is_fork=True,
+            )
+        ],
+    )
+
+    result = collect_github_evidence(
+        profile_repo=repos["profile"],
+        skill_repo=repos["skill"],
+        source_repo=repos["source"],
+        evidence_repo=repos["evidence"],
+        github_client=github,
+        career_profile_id=profile.id,
+        github_username="mpinarbasii",
+    )
+
+    assert result.linked_evidence == []
+    assert result.suggested_skills == []
+
+
+def test_collect_github_evidence_is_idempotent_across_repeated_runs():
+    repos = {
+        "profile": InMemoryCareerProfileRepository(),
+        "skill": InMemorySkillRepository(),
+        "source": InMemoryEvidenceSourceRepository(),
+        "evidence": InMemoryEvidenceRepository(),
+    }
+    github = FakeGitHubClient()
+    profile = create_career_profile(repo=repos["profile"], user_id=uuid4(), display_name="Metehan")
+    add_skill(
+        profile_repo=repos["profile"],
+        skill_repo=repos["skill"],
+        career_profile_id=profile.id,
+        name="Python",
+    )
+    github.seed(
+        "mpinarbasii",
+        [
+            GitHubRepositoryInfo(
+                name="synthetic-data",
+                html_url="https://github.com/mpinarbasii/synthetic-data",
+                description=None,
+                primary_language="Python",
+                is_fork=False,
+            )
+        ],
+    )
+    kwargs = dict(
+        profile_repo=repos["profile"],
+        skill_repo=repos["skill"],
+        source_repo=repos["source"],
+        evidence_repo=repos["evidence"],
+        github_client=github,
+        career_profile_id=profile.id,
+        github_username="mpinarbasii",
+    )
+
+    first_result = collect_github_evidence(**kwargs)
+    second_result = collect_github_evidence(**kwargs)
+
+    assert len(first_result.linked_evidence) == 1
+    assert len(second_result.linked_evidence) == 0  # already linked, not duplicated
+    linked_skill_evidence = repos["evidence"].list_for_subject(
+        EvidenceSubjectType.SKILL, first_result.linked_evidence[0].subject_id
+    )
+    assert len(linked_skill_evidence) == 1  # still just one Evidence row after two runs
+
+
+def test_collect_github_evidence_raises_for_unknown_profile():
+    repos = {
+        "profile": InMemoryCareerProfileRepository(),
+        "skill": InMemorySkillRepository(),
+        "source": InMemoryEvidenceSourceRepository(),
+        "evidence": InMemoryEvidenceRepository(),
+    }
+    with pytest.raises(ValueError):
+        collect_github_evidence(
+            profile_repo=repos["profile"],
+            skill_repo=repos["skill"],
+            source_repo=repos["source"],
+            evidence_repo=repos["evidence"],
+            github_client=FakeGitHubClient(),
+            career_profile_id=uuid4(),
+            github_username="mpinarbasii",
+        )
+
+
+def test_collect_github_evidence_propagates_user_not_found():
+    from app.domain.ports.github_client import GitHubUserNotFoundError
+
+    repos = {
+        "profile": InMemoryCareerProfileRepository(),
+        "skill": InMemorySkillRepository(),
+        "source": InMemoryEvidenceSourceRepository(),
+        "evidence": InMemoryEvidenceRepository(),
+    }
+    github = FakeGitHubClient()
+    github.seed_not_found("ghost-user")
+    profile = create_career_profile(repo=repos["profile"], user_id=uuid4(), display_name="Metehan")
+
+    with pytest.raises(GitHubUserNotFoundError):
+        collect_github_evidence(
+            profile_repo=repos["profile"],
+            skill_repo=repos["skill"],
+            source_repo=repos["source"],
+            evidence_repo=repos["evidence"],
+            github_client=github,
+            career_profile_id=profile.id,
+            github_username="ghost-user",
         )
