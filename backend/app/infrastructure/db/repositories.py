@@ -14,10 +14,12 @@ from app.domain.entities import (
     Evidence,
     EvidenceSource,
     Experience,
+    Job,
+    JobRequirement,
     Project,
     Skill,
 )
-from app.domain.value_objects import EvidenceSourceType, EvidenceSubjectType
+from app.domain.value_objects import EvidenceSourceType, EvidenceSubjectType, RequirementType
 from app.infrastructure.db.models import (
     CareerProfileModel,
     CertificationModel,
@@ -25,6 +27,8 @@ from app.infrastructure.db.models import (
     EvidenceModel,
     EvidenceSourceModel,
     ExperienceModel,
+    JobModel,
+    JobRequirementModel,
     ProjectModel,
     SkillModel,
 )
@@ -420,6 +424,74 @@ class SqlAlchemyCertificationRepository:
                 name=m.name,
                 issuer=m.issuer,
                 issued_at=m.issued_at,
+            )
+            for m in models
+        ]
+
+
+class SqlAlchemyJobRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def save(self, job: Job) -> None:
+        model = self._session.get(JobModel, job.id)
+        if model is None:
+            self._session.add(
+                JobModel(
+                    id=job.id,
+                    title=job.title,
+                    company=job.company,
+                    raw_description=job.raw_description,
+                    source_url=job.source_url,
+                    created_at=job.created_at,
+                )
+            )
+            self._session.commit()
+        # Job is immutable once created (see domain/entities.py) — no update path.
+
+    def get(self, job_id: UUID) -> Job | None:
+        model = self._session.get(JobModel, job_id)
+        if model is None:
+            return None
+        return Job(
+            id=model.id,
+            title=model.title,
+            company=model.company,
+            raw_description=model.raw_description,
+            source_url=model.source_url,
+            created_at=model.created_at,
+        )
+
+
+class SqlAlchemyJobRequirementRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def save(self, requirement: JobRequirement) -> None:
+        model = self._session.get(JobRequirementModel, requirement.id)
+        if model is None:
+            self._session.add(
+                JobRequirementModel(
+                    id=requirement.id,
+                    job_id=requirement.job_id,
+                    text=requirement.text,
+                    requirement_type=requirement.requirement_type.value,
+                    source_quote=requirement.source_quote,
+                )
+            )
+            self._session.commit()
+        # JobRequirement is immutable too — no update path.
+
+    def list_for_job(self, job_id: UUID) -> list[JobRequirement]:
+        stmt = select(JobRequirementModel).where(JobRequirementModel.job_id == job_id)
+        models = self._session.execute(stmt).scalars().all()
+        return [
+            JobRequirement(
+                id=m.id,
+                job_id=m.job_id,
+                text=m.text,
+                requirement_type=RequirementType(m.requirement_type),
+                source_quote=m.source_quote,
             )
             for m in models
         ]

@@ -9,7 +9,12 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app.api.dependencies import RepositoryBundle, get_github_client, get_repository_bundle
+from app.api.dependencies import (
+    RepositoryBundle,
+    get_github_client,
+    get_llm_provider,
+    get_repository_bundle,
+)
 from app.application.use_cases import (
     add_certification,
     add_education,
@@ -19,9 +24,12 @@ from app.application.use_cases import (
     attach_evidence_to_skill,
     collect_github_evidence,
     create_career_profile,
+    create_job,
+    extract_job_requirements,
 )
 from app.config import get_settings
 from app.domain.ports.github_client import GitHubApiError, GitHubClient, GitHubUserNotFoundError
+from app.domain.ports.llm_provider import LLMProvider, LLMResponseError
 from app.domain.value_objects import EvidenceSourceType
 
 app = FastAPI(title="Hadence API", version="0.1.0")
@@ -391,3 +399,113 @@ def collect_github_evidence_endpoint(
         ],
         suggested_skills=result.suggested_skills,
     )
+
+
+class CreateJobRequest(BaseModel):
+    title: str
+    company: str
+    raw_description: str
+    source_url: str | None = None
+
+
+class JobResponse(BaseModel):
+    id: UUID
+    title: str
+    company: str
+    raw_description: str
+    source_url: str | None
+    created_at: datetime
+
+
+@app.post("/jobs", response_model=JobResponse)
+def create_job_endpoint(
+    payload: CreateJobRequest,
+    repos: RepositoryBundle = Depends(get_repository_bundle),
+) -> JobResponse:
+    job = create_job(
+        job_repo=repos.job,
+        title=payload.title,
+        company=payload.company,
+        raw_description=payload.raw_description,
+        source_url=payload.source_url,
+    )
+    return JobResponse(
+        id=job.id,
+        title=job.title,
+        company=job.company,
+        raw_description=job.raw_description,
+        source_url=job.source_url,
+        created_at=job.created_at,
+    )
+
+
+@app.get("/jobs/{job_id}", response_model=JobResponse)
+def get_job(job_id: UUID, repos: RepositoryBundle = Depends(get_repository_bundle)) -> JobResponse:
+    job = repos.job.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return JobResponse(
+        id=job.id,
+        title=job.title,
+        company=job.company,
+        raw_description=job.raw_description,
+        source_url=job.source_url,
+        created_at=job.created_at,
+    )
+
+
+class JobRequirementResponse(BaseModel):
+    id: UUID
+    job_id: UUID
+    text: str
+    requirement_type: str
+    source_quote: str
+
+
+@app.post("/jobs/{job_id}/extract-requirements", response_model=list[JobRequirementResponse])
+def extract_job_requirements_endpoint(
+    job_id: UUID,
+    repos: RepositoryBundle = Depends(get_repository_bundle),
+    llm_provider: LLMProvider = Depends(get_llm_provider),
+) -> list[JobRequirementResponse]:
+    try:
+        requirements = extract_job_requirements(
+            job_repo=repos.job,
+            requirement_repo=repos.job_requirement,
+            llm_provider=llm_provider,
+            job_id=job_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except LLMResponseError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return [
+        JobRequirementResponse(
+            id=r.id,
+            job_id=r.job_id,
+            text=r.text,
+            requirement_type=r.requirement_type.value,
+            source_quote=r.source_quote,
+        )
+        for r in requirements
+    ]
+
+
+@app.get("/jobs/{job_id}/requirements", response_model=list[JobRequirementResponse])
+def list_job_requirements(
+    job_id: UUID, repos: RepositoryBundle = Depends(get_repository_bundle)
+) -> list[JobRequirementResponse]:
+    if repos.job.get(job_id) is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    requirements = repos.job_requirement.list_for_job(job_id)
+    return [
+        JobRequirementResponse(
+            id=r.id,
+            job_id=r.job_id,
+            text=r.text,
+            requirement_type=r.requirement_type.value,
+            source_quote=r.source_quote,
+        )
+        for r in requirements
+    ]

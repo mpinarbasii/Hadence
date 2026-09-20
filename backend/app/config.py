@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     api_cors_origins: str = "http://localhost:3000"
     github_token: str | None = None
+    anthropic_api_key: str | None = None
 
 
 @lru_cache

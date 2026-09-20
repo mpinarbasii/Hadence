@@ -3,10 +3,13 @@ from fastapi.testclient import TestClient
 from app.api.dependencies import (
     RepositoryBundle,
     get_github_client,
+    get_llm_provider,
     get_repository_bundle,
 )
 from app.api.main import app
 from app.domain.ports.github_client import GitHubRepositoryInfo
+from app.domain.ports.llm_provider import ExtractedRequirement
+from app.domain.value_objects import RequirementType
 from app.infrastructure.db.in_memory import (
     InMemoryCareerProfileRepository,
     InMemoryCertificationRepository,
@@ -14,10 +17,13 @@ from app.infrastructure.db.in_memory import (
     InMemoryEvidenceRepository,
     InMemoryEvidenceSourceRepository,
     InMemoryExperienceRepository,
+    InMemoryJobRepository,
+    InMemoryJobRequirementRepository,
     InMemoryProjectRepository,
     InMemorySkillRepository,
 )
 from app.infrastructure.integrations.github.fake import FakeGitHubClient
+from app.infrastructure.llm.fake import FakeLLMProvider
 
 _in_memory_bundle = RepositoryBundle(
     profile=InMemoryCareerProfileRepository(),
@@ -28,8 +34,11 @@ _in_memory_bundle = RepositoryBundle(
     certification=InMemoryCertificationRepository(),
     source=InMemoryEvidenceSourceRepository(),
     evidence=InMemoryEvidenceRepository(),
+    job=InMemoryJobRepository(),
+    job_requirement=InMemoryJobRequirementRepository(),
 )
 _fake_github = FakeGitHubClient()
+_fake_llm = FakeLLMProvider()
 
 
 def in_memory_bundle() -> RepositoryBundle:
@@ -42,8 +51,13 @@ def fake_github_client() -> FakeGitHubClient:
     return _fake_github
 
 
+def fake_llm_provider() -> FakeLLMProvider:
+    return _fake_llm
+
+
 app.dependency_overrides[get_repository_bundle] = in_memory_bundle
 app.dependency_overrides[get_github_client] = fake_github_client
+app.dependency_overrides[get_llm_provider] = fake_llm_provider
 client = TestClient(app)
 
 
@@ -202,4 +216,79 @@ def test_collect_github_evidence_returns_404_for_unknown_github_user():
     response = client.post(
         f"/profiles/{profile_id}/github-evidence", json={"github_username": "ghost-user"}
     )
+    assert response.status_code == 404
+
+
+def test_create_and_get_job():
+    response = client.post(
+        "/jobs",
+        json={
+            "title": "Backend Engineer",
+            "company": "Acme",
+            "raw_description": "We need a Python developer with 5+ years of experience.",
+        },
+    )
+    assert response.status_code == 200
+    job_id = response.json()["id"]
+    assert response.json()["raw_description"] == (
+        "We need a Python developer with 5+ years of experience."
+    )
+
+    get_resp = client.get(f"/jobs/{job_id}")
+    assert get_resp.status_code == 200
+    assert get_resp.json()["company"] == "Acme"
+
+
+def test_get_unknown_job_returns_404():
+    response = client.get("/jobs/00000000-0000-0000-0000-000000000000")
+    assert response.status_code == 404
+
+
+def test_extract_job_requirements_endpoint():
+    raw_description = "We need a Python developer. SQL is a plus."
+    job_resp = client.post(
+        "/jobs",
+        json={"title": "Backend Engineer", "company": "Acme", "raw_description": raw_description},
+    )
+    job_id = job_resp.json()["id"]
+
+    _fake_llm.seed_extraction(
+        raw_description,
+        [
+            ExtractedRequirement(
+                text="Python",
+                requirement_type=RequirementType.REQUIRED,
+                source_quote="Python developer",
+            ),
+            ExtractedRequirement(
+                text="SQL",
+                requirement_type=RequirementType.PREFERRED,
+                source_quote="SQL is a plus",
+            ),
+            ExtractedRequirement(
+                text="Kubernetes",
+                requirement_type=RequirementType.REQUIRED,
+                source_quote="Kubernetes required",  # not in raw_description — must be dropped
+            ),
+        ],
+    )
+
+    response = client.post(f"/jobs/{job_id}/extract-requirements")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 2
+    assert {r["text"] for r in body} == {"Python", "SQL"}
+
+    list_resp = client.get(f"/jobs/{job_id}/requirements")
+    assert list_resp.status_code == 200
+    assert len(list_resp.json()) == 2
+
+
+def test_extract_job_requirements_returns_404_for_unknown_job():
+    response = client.post("/jobs/00000000-0000-0000-0000-000000000000/extract-requirements")
+    assert response.status_code == 404
+
+
+def test_list_requirements_returns_404_for_unknown_job():
+    response = client.get("/jobs/00000000-0000-0000-0000-000000000000/requirements")
     assert response.status_code == 404

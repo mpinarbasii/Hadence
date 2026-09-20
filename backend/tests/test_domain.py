@@ -9,10 +9,12 @@ from app.domain.entities import (
     Evidence,
     EvidenceSource,
     Experience,
+    Job,
+    JobRequirement,
     Project,
     Skill,
 )
-from app.domain.value_objects import EvidenceSourceType, EvidenceSubjectType
+from app.domain.value_objects import EvidenceSourceType, EvidenceSubjectType, RequirementType
 
 
 def test_career_profile_create_has_no_skills_initially():
@@ -119,3 +121,28 @@ def test_evidence_links_subject_to_source():
     assert evidence.subject_id == skill.id
     assert evidence.evidence_source_id == source.id
     assert evidence.excerpt == "Uses Python 3.11 throughout"
+
+
+def test_job_create_preserves_raw_description_verbatim():
+    raw_text = "We need a Python developer with 5+ years of experience."
+    job = Job.create(title="Backend Engineer", company="Acme", raw_description=raw_text)
+
+    assert job.raw_description == raw_text
+    assert job.title == "Backend Engineer"
+    assert job.company == "Acme"
+    assert job.created_at is not None
+
+
+def test_job_requirement_create_links_to_job():
+    job = Job.create(title="Backend Engineer", company="Acme", raw_description="Python required.")
+
+    requirement = JobRequirement.create(
+        job_id=job.id,
+        text="Python",
+        requirement_type=RequirementType.REQUIRED,
+        source_quote="Python required.",
+    )
+
+    assert requirement.job_id == job.id
+    assert requirement.requirement_type == RequirementType.REQUIRED
+    assert requirement.source_quote == "Python required."

@@ -11,6 +11,8 @@ from app.domain.entities import (
     Evidence,
     EvidenceSource,
     Experience,
+    Job,
+    JobRequirement,
     Project,
     Skill,
 )
@@ -132,3 +134,25 @@ class InMemoryEvidenceRepository:
         return [
             e for e in self._items if e.subject_type == subject_type and e.subject_id == subject_id
         ]
+
+
+class InMemoryJobRepository:
+    def __init__(self) -> None:
+        self._by_id: dict[UUID, Job] = {}
+
+    def save(self, job: Job) -> None:
+        self._by_id[job.id] = job
+
+    def get(self, job_id: UUID) -> Job | None:
+        return self._by_id.get(job_id)
+
+
+class InMemoryJobRequirementRepository:
+    def __init__(self) -> None:
+        self._items: list[JobRequirement] = []
+
+    def save(self, requirement: JobRequirement) -> None:
+        self._items.append(requirement)
+
+    def list_for_job(self, job_id: UUID) -> list[JobRequirement]:
+        return [r for r in self._items if r.job_id == job_id]

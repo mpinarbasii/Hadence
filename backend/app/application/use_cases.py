@@ -13,10 +13,13 @@ from app.domain.entities import (
     Evidence,
     EvidenceSource,
     Experience,
+    Job,
+    JobRequirement,
     Project,
     Skill,
 )
 from app.domain.ports.github_client import GitHubClient
+from app.domain.ports.llm_provider import LLMProvider
 from app.domain.ports.repositories import (
     CareerProfileRepository,
     CertificationRepository,
@@ -24,6 +27,8 @@ from app.domain.ports.repositories import (
     EvidenceRepository,
     EvidenceSourceRepository,
     ExperienceRepository,
+    JobRepository,
+    JobRequirementRepository,
     ProjectRepository,
     SkillRepository,
 )
@@ -324,3 +329,58 @@ def collect_github_evidence(
     return GitHubCollectionResult(
         linked_evidence=linked_evidence, suggested_skills=sorted(suggested_skills)
     )
+
+
+def create_job(
+    *,
+    job_repo: JobRepository,
+    title: str,
+    company: str,
+    raw_description: str,
+    source_url: str | None = None,
+) -> Job:
+    job = Job.create(
+        title=title, company=company, raw_description=raw_description, source_url=source_url
+    )
+    job_repo.save(job)
+    return job
+
+
+def extract_job_requirements(
+    *,
+    job_repo: JobRepository,
+    requirement_repo: JobRequirementRepository,
+    llm_provider: LLMProvider,
+    job_id: UUID,
+) -> list[JobRequirement]:
+    """Extract structured requirements from a Job's raw_description via the LLM.
+
+    Every extracted item is checked against the Job's actual raw_description
+    before being saved: if the model's `source_quote` doesn't appear
+    verbatim in the source text, that item is discarded rather than saved
+    as an unverifiable requirement. This applies 'no unsupported claims' to
+    Hadence's own AI output, not just to what a user claims about
+    themselves — see docs/domain-model.md §2 and
+    app/domain/ports/llm_provider.py.
+    """
+
+    job = job_repo.get(job_id)
+    if job is None:
+        raise ValueError(f"Job {job_id} not found")
+
+    extracted = llm_provider.extract_job_requirements(job.raw_description)
+
+    saved: list[JobRequirement] = []
+    for item in extracted:
+        if item.source_quote not in job.raw_description:
+            continue  # ungrounded — the model's quote doesn't match the source text
+        requirement = JobRequirement.create(
+            job_id=job.id,
+            text=item.text,
+            requirement_type=item.requirement_type,
+            source_quote=item.source_quote,
+        )
+        requirement_repo.save(requirement)
+        saved.append(requirement)
+
+    return saved

@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from app.domain.value_objects import EvidenceSourceType, EvidenceSubjectType
+from app.domain.value_objects import EvidenceSourceType, EvidenceSubjectType, RequirementType
 
 
 @dataclass
@@ -230,3 +230,61 @@ class CareerProfile:
 
     def add_certification(self, certification_id: UUID) -> None:
         self._add_unique(self.certification_ids, certification_id, "Certification")
+
+
+@dataclass(frozen=True)
+class Job:
+    """A job posting. `raw_description` is preserved verbatim and never
+    edited after creation — every JobRequirement extracted from it must
+    stay traceable back to this exact text (see docs/domain-model.md §2)."""
+
+    id: UUID
+    title: str
+    company: str
+    raw_description: str
+    created_at: datetime
+    source_url: str | None = None
+
+    @staticmethod
+    def create(
+        title: str, company: str, raw_description: str, source_url: str | None = None
+    ) -> Job:
+        return Job(
+            id=uuid4(),
+            title=title,
+            company=company,
+            raw_description=raw_description,
+            source_url=source_url,
+            created_at=datetime.now(UTC),
+        )
+
+
+@dataclass(frozen=True)
+class JobRequirement:
+    """One structured requirement extracted from a Job's raw_description.
+
+    `source_quote` must be a verbatim substring of the parent Job's
+    raw_description — this is what makes the requirement traceable back to
+    where it came from, rather than a floating, unverifiable claim. Callers
+    that create these from LLM output are responsible for verifying the
+    quote before constructing one — see
+    app/application/use_cases.py:extract_job_requirements.
+    """
+
+    id: UUID
+    job_id: UUID
+    text: str
+    requirement_type: RequirementType
+    source_quote: str
+
+    @staticmethod
+    def create(
+        job_id: UUID, text: str, requirement_type: RequirementType, source_quote: str
+    ) -> JobRequirement:
+        return JobRequirement(
+            id=uuid4(),
+            job_id=job_id,
+            text=text,
+            requirement_type=requirement_type,
+            source_quote=source_quote,
+        )

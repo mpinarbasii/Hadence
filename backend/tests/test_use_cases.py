@@ -11,11 +11,14 @@ from app.application.use_cases import (
     attach_evidence_to_skill,
     collect_github_evidence,
     create_career_profile,
+    create_job,
+    extract_job_requirements,
     link_evidence,
     register_evidence_source,
 )
 from app.domain.ports.github_client import GitHubRepositoryInfo
-from app.domain.value_objects import EvidenceSourceType, EvidenceSubjectType
+from app.domain.ports.llm_provider import ExtractedRequirement
+from app.domain.value_objects import EvidenceSourceType, EvidenceSubjectType, RequirementType
 from app.infrastructure.db.in_memory import (
     InMemoryCareerProfileRepository,
     InMemoryCertificationRepository,
@@ -23,10 +26,13 @@ from app.infrastructure.db.in_memory import (
     InMemoryEvidenceRepository,
     InMemoryEvidenceSourceRepository,
     InMemoryExperienceRepository,
+    InMemoryJobRepository,
+    InMemoryJobRequirementRepository,
     InMemoryProjectRepository,
     InMemorySkillRepository,
 )
 from app.infrastructure.integrations.github.fake import FakeGitHubClient
+from app.infrastructure.llm.fake import FakeLLMProvider
 
 
 @pytest.fixture
@@ -479,4 +485,101 @@ def test_collect_github_evidence_propagates_user_not_found():
             github_client=github,
             career_profile_id=profile.id,
             github_username="ghost-user",
+        )
+
+
+def test_create_job_preserves_raw_description():
+    job_repo = InMemoryJobRepository()
+
+    job = create_job(
+        job_repo=job_repo,
+        title="Backend Engineer",
+        company="Acme",
+        raw_description="We need a Python developer with 5+ years of experience.",
+    )
+
+    assert job_repo.get(job.id) is job
+    assert job.raw_description == "We need a Python developer with 5+ years of experience."
+
+
+def test_extract_job_requirements_saves_grounded_requirements():
+    job_repo = InMemoryJobRepository()
+    requirement_repo = InMemoryJobRequirementRepository()
+    llm = FakeLLMProvider()
+
+    raw_description = "We need a Python developer with 5+ years of experience. SQL is a plus."
+    job = create_job(
+        job_repo=job_repo, title="Backend Engineer", company="Acme", raw_description=raw_description
+    )
+    llm.seed_extraction(
+        raw_description,
+        [
+            ExtractedRequirement(
+                text="Python",
+                requirement_type=RequirementType.REQUIRED,
+                source_quote="Python developer with 5+ years of experience",
+            ),
+            ExtractedRequirement(
+                text="SQL",
+                requirement_type=RequirementType.PREFERRED,
+                source_quote="SQL is a plus",
+            ),
+        ],
+    )
+
+    saved = extract_job_requirements(
+        job_repo=job_repo, requirement_repo=requirement_repo, llm_provider=llm, job_id=job.id
+    )
+
+    assert len(saved) == 2
+    assert {r.text for r in saved} == {"Python", "SQL"}
+    assert len(requirement_repo.list_for_job(job.id)) == 2
+
+
+def test_extract_job_requirements_discards_ungrounded_quotes():
+    """The core safety guarantee: if the model's source_quote doesn't
+    actually appear in the job's raw_description, that requirement is
+    dropped rather than saved as an unverifiable claim."""
+
+    job_repo = InMemoryJobRepository()
+    requirement_repo = InMemoryJobRequirementRepository()
+    llm = FakeLLMProvider()
+
+    raw_description = "We need a Python developer."
+    job = create_job(
+        job_repo=job_repo, title="Backend Engineer", company="Acme", raw_description=raw_description
+    )
+    llm.seed_extraction(
+        raw_description,
+        [
+            ExtractedRequirement(
+                text="Python",
+                requirement_type=RequirementType.REQUIRED,
+                source_quote="Python developer",  # genuinely in the text
+            ),
+            ExtractedRequirement(
+                text="Kubernetes",
+                requirement_type=RequirementType.REQUIRED,
+                source_quote="Kubernetes experience required",  # hallucinated — not in the text
+            ),
+        ],
+    )
+
+    saved = extract_job_requirements(
+        job_repo=job_repo, requirement_repo=requirement_repo, llm_provider=llm, job_id=job.id
+    )
+
+    assert len(saved) == 1
+    assert saved[0].text == "Python"
+    assert requirement_repo.list_for_job(job.id) == saved
+
+
+def test_extract_job_requirements_raises_for_unknown_job():
+    job_repo = InMemoryJobRepository()
+    requirement_repo = InMemoryJobRequirementRepository()
+    llm = FakeLLMProvider()
+
+    with pytest.raises(ValueError):
+        extract_job_requirements(
+            job_repo=job_repo, requirement_repo=requirement_repo, llm_provider=llm, job_id=uuid4()
         )

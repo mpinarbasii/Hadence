@@ -160,3 +160,36 @@ class EvidenceModel(Base):
     relevance_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     source: Mapped[EvidenceSourceModel] = relationship(back_populates="evidence_records")
+
+
+class JobModel(Base):
+    """See app/domain/entities.py:Job — raw_description is preserved
+    verbatim and never edited; JobRequirementModel rows stay traceable
+    back to it via source_quote."""
+
+    __tablename__ = "jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    company: Mapped[str] = mapped_column(String(255), nullable=False)
+    raw_description: Mapped[str] = mapped_column(Text, nullable=False)
+    source_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    requirements: Mapped[list[JobRequirementModel]] = relationship(
+        back_populates="job", cascade="all, delete-orphan"
+    )
+
+
+class JobRequirementModel(Base):
+    __tablename__ = "job_requirements"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    text: Mapped[str] = mapped_column(String(500), nullable=False)
+    requirement_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_quote: Mapped[str] = mapped_column(Text, nullable=False)
+
+    job: Mapped[JobModel] = relationship(back_populates="requirements")

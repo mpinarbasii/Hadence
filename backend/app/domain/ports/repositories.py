@@ -12,6 +12,8 @@ from app.domain.entities import (
     Evidence,
     EvidenceSource,
     Experience,
+    Job,
+    JobRequirement,
     Project,
     Skill,
 )
@@ -78,3 +80,15 @@ class EvidenceRepository(Protocol):
     def save(self, evidence: Evidence) -> None: ...
 
     def list_for_subject(self, subject_type: str, subject_id: UUID) -> list[Evidence]: ...
+
+
+class JobRepository(Protocol):
+    def save(self, job: Job) -> None: ...
+
+    def get(self, job_id: UUID) -> Job | None: ...
+
+
+class JobRequirementRepository(Protocol):
+    def save(self, requirement: JobRequirement) -> None: ...
+
+    def list_for_job(self, job_id: UUID) -> list[JobRequirement]: ...
