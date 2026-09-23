@@ -12,9 +12,15 @@ from app.domain.entities import (
     Job,
     JobRequirement,
     Project,
+    RequirementEvidence,
     Skill,
 )
-from app.domain.value_objects import EvidenceSourceType, EvidenceSubjectType, RequirementType
+from app.domain.value_objects import (
+    AssessmentLevel,
+    EvidenceSourceType,
+    EvidenceSubjectType,
+    RequirementType,
+)
 
 
 def test_career_profile_create_has_no_skills_initially():
@@ -146,3 +152,24 @@ def test_job_requirement_create_links_to_job():
     assert requirement.job_id == job.id
     assert requirement.requirement_type == RequirementType.REQUIRED
     assert requirement.source_quote == "Python required."
+
+
+def test_requirement_evidence_create_holds_assessment_and_explanation():
+    requirement = JobRequirement.create(
+        job_id=uuid4(),
+        text="Python",
+        requirement_type=RequirementType.REQUIRED,
+        source_quote="Python",
+    )
+    evidence_id = uuid4()
+
+    requirement_evidence = RequirementEvidence.create(
+        job_requirement_id=requirement.id,
+        evidence_ids=[evidence_id],
+        assessment=AssessmentLevel.PARTIAL,
+        explanation='"Python" is backed by 1 piece of evidence.',
+    )
+
+    assert requirement_evidence.job_requirement_id == requirement.id
+    assert requirement_evidence.evidence_ids == [evidence_id]
+    assert requirement_evidence.assessment == AssessmentLevel.PARTIAL

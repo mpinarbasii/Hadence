@@ -26,8 +26,10 @@ from app.application.use_cases import (
     create_career_profile,
     create_job,
     extract_job_requirements,
+    map_job_requirements_to_evidence,
 )
 from app.config import get_settings
+from app.domain.entities import RequirementEvidence
 from app.domain.ports.github_client import GitHubApiError, GitHubClient, GitHubUserNotFoundError
 from app.domain.ports.llm_provider import LLMProvider, LLMResponseError
 from app.domain.value_objects import EvidenceSourceType
@@ -509,3 +511,61 @@ def list_job_requirements(
         )
         for r in requirements
     ]
+
+
+class RequirementEvidenceResponse(BaseModel):
+    id: UUID
+    job_requirement_id: UUID
+    evidence_ids: list[UUID]
+    assessment: str
+    explanation: str
+
+
+def _to_requirement_evidence_response(re_: RequirementEvidence) -> RequirementEvidenceResponse:
+    return RequirementEvidenceResponse(
+        id=re_.id,
+        job_requirement_id=re_.job_requirement_id,
+        evidence_ids=re_.evidence_ids,
+        assessment=re_.assessment.value,
+        explanation=re_.explanation,
+    )
+
+
+@app.post(
+    "/jobs/{job_id}/profiles/{profile_id}/evidence-map",
+    response_model=list[RequirementEvidenceResponse],
+)
+def map_job_requirements_to_evidence_endpoint(
+    job_id: UUID,
+    profile_id: UUID,
+    repos: RepositoryBundle = Depends(get_repository_bundle),
+) -> list[RequirementEvidenceResponse]:
+    try:
+        results = map_job_requirements_to_evidence(
+            job_repo=repos.job,
+            requirement_repo=repos.job_requirement,
+            skill_repo=repos.skill,
+            evidence_repo=repos.evidence,
+            requirement_evidence_repo=repos.requirement_evidence,
+            job_id=job_id,
+            career_profile_id=profile_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return [_to_requirement_evidence_response(r) for r in results]
+
+
+@app.get(
+    "/jobs/{job_id}/profiles/{profile_id}/evidence-map",
+    response_model=list[RequirementEvidenceResponse],
+)
+def get_job_evidence_map(
+    job_id: UUID,
+    profile_id: UUID,
+    repos: RepositoryBundle = Depends(get_repository_bundle),
+) -> list[RequirementEvidenceResponse]:
+    if repos.job.get(job_id) is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    results = repos.requirement_evidence.list_for_job(job_id)
+    return [_to_requirement_evidence_response(r) for r in results]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
@@ -16,6 +17,7 @@ from app.domain.entities import (
     Job,
     JobRequirement,
     Project,
+    RequirementEvidence,
     Skill,
 )
 from app.domain.ports.github_client import GitHubClient
@@ -30,9 +32,10 @@ from app.domain.ports.repositories import (
     JobRepository,
     JobRequirementRepository,
     ProjectRepository,
+    RequirementEvidenceRepository,
     SkillRepository,
 )
-from app.domain.value_objects import EvidenceSourceType, EvidenceSubjectType
+from app.domain.value_objects import AssessmentLevel, EvidenceSourceType, EvidenceSubjectType
 
 
 def create_career_profile(
@@ -384,3 +387,121 @@ def extract_job_requirements(
         saved.append(requirement)
 
     return saved
+
+
+def _skill_matches_requirement(skill_name: str, requirement_text: str) -> bool:
+    """Whole-word, case-insensitive containment — 'Python' matches 'Python'
+    or 'Python developer', but not 'CPython' (word-boundary check)."""
+
+    pattern = rf"\b{re.escape(skill_name.lower())}\b"
+    return re.search(pattern, requirement_text.lower()) is not None
+
+
+def _find_matching_skill(requirement_text: str, skills: list[Skill]) -> Skill | None:
+    for skill in skills:
+        if _skill_matches_requirement(skill.name, requirement_text):
+            return skill
+    return None
+
+
+def _assess_from_evidence_count(evidence_count: int) -> AssessmentLevel:
+    if evidence_count == 0:
+        return AssessmentLevel.WEAK
+    if evidence_count == 1:
+        return AssessmentLevel.PARTIAL
+    return AssessmentLevel.STRONG
+
+
+def _build_explanation(
+    requirement_text: str, skill: Skill | None, evidence_list: list[Evidence]
+) -> str:
+    if skill is None:
+        return f'No skill in the profile matches "{requirement_text}".'
+    if not evidence_list:
+        return f'"{skill.name}" is listed as a skill, but has no supporting evidence attached.'
+
+    excerpts = [e.excerpt for e in evidence_list if e.excerpt]
+    detail = "; ".join(excerpts[:3]) if excerpts else "see the attached evidence sources"
+    count = len(evidence_list)
+    piece_word = "piece" if count == 1 else "pieces"
+    return f'"{skill.name}" is backed by {count} {piece_word} of evidence: {detail}.'
+
+
+def map_job_requirements_to_evidence(
+    *,
+    job_repo: JobRepository,
+    requirement_repo: JobRequirementRepository,
+    skill_repo: SkillRepository,
+    evidence_repo: EvidenceRepository,
+    requirement_evidence_repo: RequirementEvidenceRepository,
+    job_id: UUID,
+    career_profile_id: UUID,
+) -> list[RequirementEvidence]:
+    """The heart of the product: for each of a Job's requirements, find
+    whether the CareerProfile has a matching, evidence-backed skill, and
+    record a deterministic, explainable assessment.
+
+    Deliberately rule-based, not LLM-based — see the architecture
+    discussion this was built from: matching a requirement's text to a
+    skill name and counting real Evidence records is a lookup/counting
+    operation, not an interpretive one, so plain code is more reliable,
+    faster, and free (see docs/architecture.md §4 and the brief's AI usage
+    philosophy). The trade-off is real and documented: a requirement
+    phrased without a skill name in it (e.g. "5+ years of backend
+    experience") won't match anything today and is scored None. Improving
+    that is future work (e.g. LLM-assisted matching), not a bug in this
+    version.
+
+    Assessment rule (see docs/domain-model.md §4 for what each level means):
+    - No matching skill in the profile at all -> None
+    - Matching skill exists but has zero Evidence records -> Weak
+    - Matching skill exists with exactly one Evidence record -> Partial
+    - Matching skill exists with two or more Evidence records -> Strong
+    'Conflicting' is not auto-assigned in this version — there is no
+    conflict-detection heuristic yet.
+
+    Re-running this for the same job/profile updates each requirement's
+    existing RequirementEvidence in place (see
+    RequirementEvidenceRepository.save) rather than accumulating duplicate
+    assessments, since the profile's evidence can grow between runs.
+    """
+
+    job = job_repo.get(job_id)
+    if job is None:
+        raise ValueError(f"Job {job_id} not found")
+
+    requirements = requirement_repo.list_for_job(job_id)
+    if not requirements:
+        raise ValueError(f"Job {job_id} has no extracted requirements yet — run extraction first")
+
+    skills = skill_repo.list_for_profile(career_profile_id)
+
+    results: list[RequirementEvidence] = []
+    for requirement in requirements:
+        matched_skill = _find_matching_skill(requirement.text, skills)
+
+        if matched_skill is None:
+            evidence_list: list[Evidence] = []
+        else:
+            evidence_list = evidence_repo.list_for_subject(
+                EvidenceSubjectType.SKILL, matched_skill.id
+            )
+
+        evidence_ids = [e.id for e in evidence_list]
+        assessment = (
+            AssessmentLevel.NONE
+            if matched_skill is None
+            else _assess_from_evidence_count(len(evidence_list))
+        )
+        explanation = _build_explanation(requirement.text, matched_skill, evidence_list)
+
+        requirement_evidence = RequirementEvidence.create(
+            job_requirement_id=requirement.id,
+            evidence_ids=evidence_ids,
+            assessment=assessment,
+            explanation=explanation,
+        )
+        requirement_evidence_repo.save(requirement_evidence)
+        results.append(requirement_evidence)
+
+    return results

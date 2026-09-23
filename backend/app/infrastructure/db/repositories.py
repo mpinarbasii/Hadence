@@ -17,9 +17,15 @@ from app.domain.entities import (
     Job,
     JobRequirement,
     Project,
+    RequirementEvidence,
     Skill,
 )
-from app.domain.value_objects import EvidenceSourceType, EvidenceSubjectType, RequirementType
+from app.domain.value_objects import (
+    AssessmentLevel,
+    EvidenceSourceType,
+    EvidenceSubjectType,
+    RequirementType,
+)
 from app.infrastructure.db.models import (
     CareerProfileModel,
     CertificationModel,
@@ -30,6 +36,7 @@ from app.infrastructure.db.models import (
     JobModel,
     JobRequirementModel,
     ProjectModel,
+    RequirementEvidenceModel,
     SkillModel,
 )
 
@@ -492,6 +499,69 @@ class SqlAlchemyJobRequirementRepository:
                 text=m.text,
                 requirement_type=RequirementType(m.requirement_type),
                 source_quote=m.source_quote,
+            )
+            for m in models
+        ]
+
+
+class SqlAlchemyRequirementEvidenceRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def save(self, requirement_evidence: RequirementEvidence) -> None:
+        stmt = select(RequirementEvidenceModel).where(
+            RequirementEvidenceModel.job_requirement_id == requirement_evidence.job_requirement_id
+        )
+        model = self._session.execute(stmt).scalar_one_or_none()
+        if model is None:
+            self._session.add(
+                RequirementEvidenceModel(
+                    id=requirement_evidence.id,
+                    job_requirement_id=requirement_evidence.job_requirement_id,
+                    evidence_ids=requirement_evidence.evidence_ids,
+                    assessment=requirement_evidence.assessment.value,
+                    explanation=requirement_evidence.explanation,
+                )
+            )
+        else:
+            # Upsert keyed on job_requirement_id — see the port's docstring.
+            model.evidence_ids = requirement_evidence.evidence_ids
+            model.assessment = requirement_evidence.assessment.value
+            model.explanation = requirement_evidence.explanation
+        self._session.commit()
+
+    def get_for_requirement(self, job_requirement_id: UUID) -> RequirementEvidence | None:
+        stmt = select(RequirementEvidenceModel).where(
+            RequirementEvidenceModel.job_requirement_id == job_requirement_id
+        )
+        model = self._session.execute(stmt).scalar_one_or_none()
+        if model is None:
+            return None
+        return RequirementEvidence(
+            id=model.id,
+            job_requirement_id=model.job_requirement_id,
+            evidence_ids=list(model.evidence_ids),
+            assessment=AssessmentLevel(model.assessment),
+            explanation=model.explanation,
+        )
+
+    def list_for_job(self, job_id: UUID) -> list[RequirementEvidence]:
+        stmt = (
+            select(RequirementEvidenceModel)
+            .join(
+                JobRequirementModel,
+                JobRequirementModel.id == RequirementEvidenceModel.job_requirement_id,
+            )
+            .where(JobRequirementModel.job_id == job_id)
+        )
+        models = self._session.execute(stmt).scalars().all()
+        return [
+            RequirementEvidence(
+                id=m.id,
+                job_requirement_id=m.job_requirement_id,
+                evidence_ids=list(m.evidence_ids),
+                assessment=AssessmentLevel(m.assessment),
+                explanation=m.explanation,
             )
             for m in models
         ]

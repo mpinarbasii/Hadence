@@ -10,7 +10,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from app.domain.value_objects import EvidenceSourceType, EvidenceSubjectType, RequirementType
+from app.domain.value_objects import (
+    AssessmentLevel,
+    EvidenceSourceType,
+    EvidenceSubjectType,
+    RequirementType,
+)
 
 
 @dataclass
@@ -287,4 +292,41 @@ class JobRequirement:
             text=text,
             requirement_type=requirement_type,
             source_quote=source_quote,
+        )
+
+
+@dataclass
+class RequirementEvidence:
+    """The mapping between one JobRequirement and the profile's Evidence
+    that speaks to it — see docs/domain-model.md §2 and §4.
+
+    Not frozen, unlike Job/JobRequirement: a mapping is a recomputable
+    snapshot (re-running the evidence mapping use case for the same
+    requirement updates this in place, since the profile's evidence can
+    grow over time — see
+    app/application/use_cases.py:map_job_requirements_to_evidence), not an
+    immutable historical record. `assessment` is always one of the five
+    AssessmentLevel states, never a bare numeric score — see
+    docs/domain-model.md §4 for what each state means.
+    """
+
+    id: UUID
+    job_requirement_id: UUID
+    evidence_ids: list[UUID]
+    assessment: AssessmentLevel
+    explanation: str
+
+    @staticmethod
+    def create(
+        job_requirement_id: UUID,
+        evidence_ids: list[UUID],
+        assessment: AssessmentLevel,
+        explanation: str,
+    ) -> RequirementEvidence:
+        return RequirementEvidence(
+            id=uuid4(),
+            job_requirement_id=job_requirement_id,
+            evidence_ids=evidence_ids,
+            assessment=assessment,
+            explanation=explanation,
         )

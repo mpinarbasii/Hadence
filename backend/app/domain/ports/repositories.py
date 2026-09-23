@@ -15,6 +15,7 @@ from app.domain.entities import (
     Job,
     JobRequirement,
     Project,
+    RequirementEvidence,
     Skill,
 )
 from app.domain.value_objects import EvidenceSourceType
@@ -92,3 +93,16 @@ class JobRequirementRepository(Protocol):
     def save(self, requirement: JobRequirement) -> None: ...
 
     def list_for_job(self, job_id: UUID) -> list[JobRequirement]: ...
+
+
+class RequirementEvidenceRepository(Protocol):
+    def save(self, requirement_evidence: RequirementEvidence) -> None:
+        """Upserts keyed on job_requirement_id, not on the object's own id —
+        re-running the mapping for a requirement updates its existing
+        RequirementEvidence in place rather than accumulating duplicates.
+        See app/domain/entities.py:RequirementEvidence."""
+        ...
+
+    def get_for_requirement(self, job_requirement_id: UUID) -> RequirementEvidence | None: ...
+
+    def list_for_job(self, job_id: UUID) -> list[RequirementEvidence]: ...

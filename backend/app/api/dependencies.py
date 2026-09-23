@@ -20,6 +20,7 @@ from app.domain.ports.repositories import (
     JobRepository,
     JobRequirementRepository,
     ProjectRepository,
+    RequirementEvidenceRepository,
     SkillRepository,
 )
 from app.infrastructure.db.engine import get_session
@@ -33,6 +34,7 @@ from app.infrastructure.db.repositories import (
     SqlAlchemyJobRepository,
     SqlAlchemyJobRequirementRepository,
     SqlAlchemyProjectRepository,
+    SqlAlchemyRequirementEvidenceRepository,
     SqlAlchemySkillRepository,
 )
 from app.infrastructure.integrations.github.client import HttpGitHubClient
@@ -51,6 +53,7 @@ class RepositoryBundle:
     evidence: EvidenceRepository
     job: JobRepository
     job_requirement: JobRequirementRepository
+    requirement_evidence: RequirementEvidenceRepository
 
 
 def get_repository_bundle() -> Iterator[RepositoryBundle]:
@@ -68,6 +71,7 @@ def get_repository_bundle() -> Iterator[RepositoryBundle]:
             evidence=SqlAlchemyEvidenceRepository(session),
             job=SqlAlchemyJobRepository(session),
             job_requirement=SqlAlchemyJobRequirementRepository(session),
+            requirement_evidence=SqlAlchemyRequirementEvidenceRepository(session),
         )
     finally:
         try:

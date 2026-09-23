@@ -14,11 +14,18 @@ from app.application.use_cases import (
     create_job,
     extract_job_requirements,
     link_evidence,
+    map_job_requirements_to_evidence,
     register_evidence_source,
 )
+from app.domain.entities import JobRequirement
 from app.domain.ports.github_client import GitHubRepositoryInfo
 from app.domain.ports.llm_provider import ExtractedRequirement
-from app.domain.value_objects import EvidenceSourceType, EvidenceSubjectType, RequirementType
+from app.domain.value_objects import (
+    AssessmentLevel,
+    EvidenceSourceType,
+    EvidenceSubjectType,
+    RequirementType,
+)
 from app.infrastructure.db.in_memory import (
     InMemoryCareerProfileRepository,
     InMemoryCertificationRepository,
@@ -29,6 +36,7 @@ from app.infrastructure.db.in_memory import (
     InMemoryJobRepository,
     InMemoryJobRequirementRepository,
     InMemoryProjectRepository,
+    InMemoryRequirementEvidenceRepository,
     InMemorySkillRepository,
 )
 from app.infrastructure.integrations.github.fake import FakeGitHubClient
@@ -582,4 +590,266 @@ def test_extract_job_requirements_raises_for_unknown_job():
     with pytest.raises(ValueError):
         extract_job_requirements(
             job_repo=job_repo, requirement_repo=requirement_repo, llm_provider=llm, job_id=uuid4()
+        )
+
+
+def JobRequirementFactory(requirement_repo, job_id, text: str) -> JobRequirement:
+    """Test helper: create and persist a JobRequirement directly, bypassing
+    LLM extraction (Phase 4's evidence mapping only needs JobRequirement
+    rows to exist — how they got there isn't its concern)."""
+
+    requirement = JobRequirement.create(
+        job_id=job_id,
+        text=text,
+        requirement_type=RequirementType.REQUIRED,
+        source_quote=text,
+    )
+    requirement_repo.save(requirement)
+    return requirement
+
+
+def _setup_evidence_mapping_repos():
+    profile_repo = InMemoryCareerProfileRepository()
+    skill_repo = InMemorySkillRepository()
+    source_repo = InMemoryEvidenceSourceRepository()
+    evidence_repo = InMemoryEvidenceRepository()
+    job_repo = InMemoryJobRepository()
+    requirement_repo = InMemoryJobRequirementRepository()
+    requirement_evidence_repo = InMemoryRequirementEvidenceRepository(requirement_repo)
+    return {
+        "profile": profile_repo,
+        "skill": skill_repo,
+        "source": source_repo,
+        "evidence": evidence_repo,
+        "job": job_repo,
+        "requirement": requirement_repo,
+        "requirement_evidence": requirement_evidence_repo,
+    }
+
+
+def test_map_job_requirements_to_evidence_strong_for_two_plus_evidence():
+    repos = _setup_evidence_mapping_repos()
+    profile = create_career_profile(repo=repos["profile"], user_id=uuid4(), display_name="Metehan")
+    skill = add_skill(
+        profile_repo=repos["profile"],
+        skill_repo=repos["skill"],
+        career_profile_id=profile.id,
+        name="Python",
+    )
+    for i in range(2):
+        source = register_evidence_source(
+            source_repo=repos["source"],
+            source_type=EvidenceSourceType.GITHUB,
+            source_label=f"repo-{i}",
+            source_uri=f"https://github.com/example/repo-{i}",
+        )
+        link_evidence(
+            evidence_repo=repos["evidence"],
+            source_repo=repos["source"],
+            subject_type=EvidenceSubjectType.SKILL,
+            subject_id=skill.id,
+            evidence_source_id=source.id,
+            excerpt=f"Python project #{i}",
+        )
+
+    job = create_job(
+        job_repo=repos["job"],
+        title="Backend Engineer",
+        company="Acme",
+        raw_description="Python required.",
+    )
+    requirement = JobRequirementFactory(repos["requirement"], job.id, "Python")
+
+    results = map_job_requirements_to_evidence(
+        job_repo=repos["job"],
+        requirement_repo=repos["requirement"],
+        skill_repo=repos["skill"],
+        evidence_repo=repos["evidence"],
+        requirement_evidence_repo=repos["requirement_evidence"],
+        job_id=job.id,
+        career_profile_id=profile.id,
+    )
+
+    assert len(results) == 1
+    assert results[0].assessment == AssessmentLevel.STRONG
+    assert len(results[0].evidence_ids) == 2
+    assert requirement.id == results[0].job_requirement_id
+
+
+def test_map_job_requirements_to_evidence_partial_for_one_evidence():
+    repos = _setup_evidence_mapping_repos()
+    profile = create_career_profile(repo=repos["profile"], user_id=uuid4(), display_name="Metehan")
+    skill = add_skill(
+        profile_repo=repos["profile"],
+        skill_repo=repos["skill"],
+        career_profile_id=profile.id,
+        name="SQL",
+    )
+    source = register_evidence_source(
+        source_repo=repos["source"],
+        source_type=EvidenceSourceType.MANUAL,
+        source_label="manual note",
+    )
+    link_evidence(
+        evidence_repo=repos["evidence"],
+        source_repo=repos["source"],
+        subject_type=EvidenceSubjectType.SKILL,
+        subject_id=skill.id,
+        evidence_source_id=source.id,
+    )
+    job = create_job(
+        job_repo=repos["job"], title="Analyst", company="Acme", raw_description="SQL is a plus."
+    )
+    JobRequirementFactory(repos["requirement"], job.id, "SQL")
+
+    results = map_job_requirements_to_evidence(
+        job_repo=repos["job"],
+        requirement_repo=repos["requirement"],
+        skill_repo=repos["skill"],
+        evidence_repo=repos["evidence"],
+        requirement_evidence_repo=repos["requirement_evidence"],
+        job_id=job.id,
+        career_profile_id=profile.id,
+    )
+
+    assert results[0].assessment == AssessmentLevel.PARTIAL
+
+
+def test_map_job_requirements_to_evidence_weak_for_skill_with_no_evidence():
+    repos = _setup_evidence_mapping_repos()
+    profile = create_career_profile(repo=repos["profile"], user_id=uuid4(), display_name="Metehan")
+    add_skill(
+        profile_repo=repos["profile"],
+        skill_repo=repos["skill"],
+        career_profile_id=profile.id,
+        name="PowerBI",
+    )
+    job = create_job(
+        job_repo=repos["job"], title="Analyst", company="Acme", raw_description="PowerBI required."
+    )
+    JobRequirementFactory(repos["requirement"], job.id, "PowerBI")
+
+    results = map_job_requirements_to_evidence(
+        job_repo=repos["job"],
+        requirement_repo=repos["requirement"],
+        skill_repo=repos["skill"],
+        evidence_repo=repos["evidence"],
+        requirement_evidence_repo=repos["requirement_evidence"],
+        job_id=job.id,
+        career_profile_id=profile.id,
+    )
+
+    assert results[0].assessment == AssessmentLevel.WEAK
+    assert results[0].evidence_ids == []
+
+
+def test_map_job_requirements_to_evidence_none_for_unmatched_requirement():
+    repos = _setup_evidence_mapping_repos()
+    profile = create_career_profile(repo=repos["profile"], user_id=uuid4(), display_name="Metehan")
+    job = create_job(
+        job_repo=repos["job"], title="Analyst", company="Acme", raw_description="Rust required."
+    )
+    JobRequirementFactory(repos["requirement"], job.id, "Rust")
+
+    results = map_job_requirements_to_evidence(
+        job_repo=repos["job"],
+        requirement_repo=repos["requirement"],
+        skill_repo=repos["skill"],
+        evidence_repo=repos["evidence"],
+        requirement_evidence_repo=repos["requirement_evidence"],
+        job_id=job.id,
+        career_profile_id=profile.id,
+    )
+
+    assert results[0].assessment == AssessmentLevel.NONE
+    assert results[0].evidence_ids == []
+    assert "No skill" in results[0].explanation
+
+
+def test_map_job_requirements_to_evidence_is_idempotent_updates_in_place():
+    repos = _setup_evidence_mapping_repos()
+    profile = create_career_profile(repo=repos["profile"], user_id=uuid4(), display_name="Metehan")
+    skill = add_skill(
+        profile_repo=repos["profile"],
+        skill_repo=repos["skill"],
+        career_profile_id=profile.id,
+        name="Python",
+    )
+    job = create_job(
+        job_repo=repos["job"],
+        title="Backend Engineer",
+        company="Acme",
+        raw_description="Python required.",
+    )
+    JobRequirementFactory(repos["requirement"], job.id, "Python")
+
+    kwargs = dict(
+        job_repo=repos["job"],
+        requirement_repo=repos["requirement"],
+        skill_repo=repos["skill"],
+        evidence_repo=repos["evidence"],
+        requirement_evidence_repo=repos["requirement_evidence"],
+        job_id=job.id,
+        career_profile_id=profile.id,
+    )
+
+    first = map_job_requirements_to_evidence(**kwargs)
+    assert first[0].assessment == AssessmentLevel.WEAK  # no evidence yet
+
+    source = register_evidence_source(
+        source_repo=repos["source"],
+        source_type=EvidenceSourceType.MANUAL,
+        source_label="manual note",
+    )
+    link_evidence(
+        evidence_repo=repos["evidence"],
+        source_repo=repos["source"],
+        subject_type=EvidenceSubjectType.SKILL,
+        subject_id=skill.id,
+        evidence_source_id=source.id,
+    )
+
+    second = map_job_requirements_to_evidence(**kwargs)
+    assert second[0].assessment == AssessmentLevel.PARTIAL  # updated in place
+    assert first[0].job_requirement_id == second[0].job_requirement_id
+    # only one RequirementEvidence exists for this requirement, not two
+    stored = repos["requirement_evidence"].get_for_requirement(second[0].job_requirement_id)
+    assert stored.assessment == AssessmentLevel.PARTIAL
+
+
+def test_map_job_requirements_to_evidence_raises_for_unknown_job():
+    repos = _setup_evidence_mapping_repos()
+    profile = create_career_profile(repo=repos["profile"], user_id=uuid4(), display_name="Metehan")
+
+    with pytest.raises(ValueError):
+        map_job_requirements_to_evidence(
+            job_repo=repos["job"],
+            requirement_repo=repos["requirement"],
+            skill_repo=repos["skill"],
+            evidence_repo=repos["evidence"],
+            requirement_evidence_repo=repos["requirement_evidence"],
+            job_id=uuid4(),
+            career_profile_id=profile.id,
+        )
+
+
+def test_map_job_requirements_to_evidence_raises_when_no_requirements_extracted():
+    repos = _setup_evidence_mapping_repos()
+    profile = create_career_profile(repo=repos["profile"], user_id=uuid4(), display_name="Metehan")
+    job = create_job(
+        job_repo=repos["job"],
+        title="Backend Engineer",
+        company="Acme",
+        raw_description="Python required.",
+    )
+
+    with pytest.raises(ValueError):
+        map_job_requirements_to_evidence(
+            job_repo=repos["job"],
+            requirement_repo=repos["requirement"],
+            skill_repo=repos["skill"],
+            evidence_repo=repos["evidence"],
+            requirement_evidence_repo=repos["requirement_evidence"],
+            job_id=job.id,
+            career_profile_id=profile.id,
         )

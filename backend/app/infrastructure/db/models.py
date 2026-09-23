@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -193,3 +194,27 @@ class JobRequirementModel(Base):
     source_quote: Mapped[str] = mapped_column(Text, nullable=False)
 
     job: Mapped[JobModel] = relationship(back_populates="requirements")
+
+
+class RequirementEvidenceModel(Base):
+    """See app/domain/entities.py:RequirementEvidence — recomputable
+    mapping, one row per job_requirement_id (unique constraint below
+    enforces the upsert-by-requirement semantics the repository relies
+    on)."""
+
+    __tablename__ = "requirement_evidence"
+    __table_args__ = (
+        UniqueConstraint("job_requirement_id", name="uq_requirement_evidence_job_requirement_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    job_requirement_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("job_requirements.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    evidence_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(PG_UUID(as_uuid=True)), nullable=False
+    )
+    assessment: Mapped[str] = mapped_column(String(32), nullable=False)
+    explanation: Mapped[str] = mapped_column(Text, nullable=False)

@@ -20,11 +20,13 @@ from app.infrastructure.db.in_memory import (
     InMemoryJobRepository,
     InMemoryJobRequirementRepository,
     InMemoryProjectRepository,
+    InMemoryRequirementEvidenceRepository,
     InMemorySkillRepository,
 )
 from app.infrastructure.integrations.github.fake import FakeGitHubClient
 from app.infrastructure.llm.fake import FakeLLMProvider
 
+_job_requirement_repo = InMemoryJobRequirementRepository()
 _in_memory_bundle = RepositoryBundle(
     profile=InMemoryCareerProfileRepository(),
     skill=InMemorySkillRepository(),
@@ -35,7 +37,8 @@ _in_memory_bundle = RepositoryBundle(
     source=InMemoryEvidenceSourceRepository(),
     evidence=InMemoryEvidenceRepository(),
     job=InMemoryJobRepository(),
-    job_requirement=InMemoryJobRequirementRepository(),
+    job_requirement=_job_requirement_repo,
+    requirement_evidence=InMemoryRequirementEvidenceRepository(_job_requirement_repo),
 )
 _fake_github = FakeGitHubClient()
 _fake_llm = FakeLLMProvider()
@@ -291,4 +294,59 @@ def test_extract_job_requirements_returns_404_for_unknown_job():
 
 def test_list_requirements_returns_404_for_unknown_job():
     response = client.get("/jobs/00000000-0000-0000-0000-000000000000/requirements")
+    assert response.status_code == 404
+
+
+def test_evidence_map_endpoint_end_to_end():
+    profile_resp = client.post(
+        "/profiles",
+        json={
+            "user_id": "77777777-7777-7777-7777-777777777777",
+            "display_name": "Metehan",
+        },
+    )
+    profile_id = profile_resp.json()["id"]
+    client.post(f"/profiles/{profile_id}/skills", json={"name": "Python"})
+
+    raw_description = "We need a Python developer. Rust experience is also required."
+    job_resp = client.post(
+        "/jobs",
+        json={"title": "Backend Engineer", "company": "Acme", "raw_description": raw_description},
+    )
+    job_id = job_resp.json()["id"]
+
+    _fake_llm.seed_extraction(
+        raw_description,
+        [
+            ExtractedRequirement(
+                text="Python",
+                requirement_type=RequirementType.REQUIRED,
+                source_quote="Python developer",
+            ),
+            ExtractedRequirement(
+                text="Rust",
+                requirement_type=RequirementType.REQUIRED,
+                source_quote="Rust experience is also required",
+            ),
+        ],
+    )
+    client.post(f"/jobs/{job_id}/extract-requirements")
+
+    response = client.post(f"/jobs/{job_id}/profiles/{profile_id}/evidence-map")
+    assert response.status_code == 200
+    body = response.json()
+    assessments = {r["assessment"] for r in body}
+    # Python: skill exists, no evidence attached -> weak. Rust: no matching skill -> none.
+    assert assessments == {"weak", "none"}
+
+    get_resp = client.get(f"/jobs/{job_id}/profiles/{profile_id}/evidence-map")
+    assert get_resp.status_code == 200
+    assert len(get_resp.json()) == 2
+
+
+def test_evidence_map_returns_404_for_unknown_job():
+    response = client.post(
+        "/jobs/00000000-0000-0000-0000-000000000000/profiles/"
+        "11111111-1111-1111-1111-111111111111/evidence-map"
+    )
     assert response.status_code == 404

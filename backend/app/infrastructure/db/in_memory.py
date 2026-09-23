@@ -14,6 +14,7 @@ from app.domain.entities import (
     Job,
     JobRequirement,
     Project,
+    RequirementEvidence,
     Skill,
 )
 from app.domain.value_objects import EvidenceSourceType
@@ -156,3 +157,27 @@ class InMemoryJobRequirementRepository:
 
     def list_for_job(self, job_id: UUID) -> list[JobRequirement]:
         return [r for r in self._items if r.job_id == job_id]
+
+
+class InMemoryRequirementEvidenceRepository:
+    def __init__(
+        self, job_requirement_repo: InMemoryJobRequirementRepository | None = None
+    ) -> None:
+        self._by_requirement_id: dict[UUID, RequirementEvidence] = {}
+        self._job_requirement_repo = job_requirement_repo
+
+    def save(self, requirement_evidence: RequirementEvidence) -> None:
+        self._by_requirement_id[requirement_evidence.job_requirement_id] = requirement_evidence
+
+    def get_for_requirement(self, job_requirement_id: UUID) -> RequirementEvidence | None:
+        return self._by_requirement_id.get(job_requirement_id)
+
+    def list_for_job(self, job_id: UUID) -> list[RequirementEvidence]:
+        if self._job_requirement_repo is None:
+            return []
+        job_requirement_ids = {r.id for r in self._job_requirement_repo.list_for_job(job_id)}
+        return [
+            re
+            for re in self._by_requirement_id.values()
+            if re.job_requirement_id in job_requirement_ids
+        ]
